@@ -1,36 +1,87 @@
 Rothmann Soil Sensors brings soil moisture sensors from multiple brands into one consistent Homey experience.
 
-I think soil moisture sensors are underserved in Homey. First of all, Third Reality's sensor is almost the only readily available soil moisture sensor in Homey, and it can be a bit pricey.
+## Why this project exists
 
-Tuya owners are more lucky, not because of Tuya itself, but because a lot of very cheap, usable sensors are available in that ecosystem.
+Soil moisture sensors are oddly underserved in Homey.
 
-I also think the current sensor support lacks usability. What I really want is to use Homey's zone card `Any <alarm> on` in a flow to trigger an alert when a soil moisture sensor detects that it is time for watering, meaning the soil has become too dry.
+Third Reality's sensor is one of the few solid options available out of the box, but it is not exactly bargain-bin territory. Tuya users are, in a slightly chaotic way, more fortunate: there are lots of very cheap sensors out there, and quite a few of them are actually usable.
 
-Two things stand in the way of that today:
+The bigger issue, though, is not only device availability. It is usability.
 
-1. No soil moisture sensor emits such an alarm.
-2. `Soil Dry` is not a standard alarm, so Homey's zone card does not work with it as a custom alarm capability.
+What I really want is simple:
 
-The closest candidate is `alarm_water`, but that really means the opposite. Still, it works well enough for my use case, unless you also have water leakage sensors around. In that case, you would get incorrect zone alarms.
+Use Homey's zone card `Any <alarm> on` to trigger a watering alert when the soil becomes too dry.
 
-I do not have leakage sensors yet, so I am happy to use `alarm_water` for now.
+That should be easy. It is not.
 
-I do not expect to get a request like this accepted upstream by, for example, Third Reality, because they also have leakage sensors in their product line. It would not be a safe default for the broader audience anyway, since many users are likely mixing leak sensors and soil sensors.
+## The problem
 
-But I am not.
+Two things get in the way:
 
-To try to get Homey's attention, I created a feature request about better flow and zone support for custom alarm capabilities:
+1. Soil moisture sensors typically do not expose a dedicated "soil dry" alarm.
+2. `Soil Dry` is not a standard Homey alarm capability, so zone cards do not work with it as a custom alarm.
+
+The closest built-in candidate is `alarm_water`.
+
+Yes, that technically means the opposite.
+Yes, that is a bit silly.
+Yes, I am using it anyway.
+
+Why? Because for my setup it works.
+
+If you have leak sensors in the same zones, this becomes a bad idea because your flows will mix "my basement is flooding" with "my tomato plant is feeling dramatic".
+
+I do not have leak sensors yet, so for now `alarm_water` is doing perfectly respectable work as a dry-soil alarm wearing a fake moustache.
+
+## The long game
+
+I would prefer to do this properly.
+
+I have therefore created a Homey feature request for better flow and zone support for custom alarm capabilities:
 
 https://community.homey.app/t/feature-request-better-flow-and-zone-support-for-custom-alarm-capabilities/153765
 
-If that works out, my plan is to get this work into the official Homey apps, and-or implement it in this project with a proper migration away from `alarm_water` usage.
+If Homey adds proper support, the plan is straightforward:
 
-So this project is about making practical soil moisture support work today, including the use of `alarm_water`, and writing my own drivers where needed. That includes a modified Third Reality driver and potentially various Tuya-based sensors.
+1. Move away from `alarm_water`
+2. Introduce a proper custom dry-soil alarm
+3. Add migration where relevant
+4. Push the work upstream where it makes sense
 
-https://github.com/philipostli/com.arteco is a great project that already implements the ZS-301Z Tuya sensor. Since I have a few ZS-304Z devices, I am building on Philip's great work. If he agrees, that is where the Tuya work should ideally go.
+That includes official apps where possible. I like local hacks, but I like sustainable community improvements even more.
 
-Otherwise, it will live here in this project.
+## Project direction
 
-The ZS-304Z is currently in a pull request on Philip's repository.
+This project is about making soil moisture support useful today, not someday.
 
-The first supported device in this app is the Third Reality Smart Soil Moisture Sensor. The app focuses on practical monitoring and alerting with a shared approach that can later expand to additional soil sensors.
+That means:
+
+1. Writing my own drivers where needed
+2. Adapting existing drivers when that is the pragmatic route
+3. Improving alerting and flow usability
+4. Keeping the door open for upstream contributions
+
+The first supported device is the Third Reality Smart Soil Moisture Sensor.
+
+Tuya support may also land here, unless it can live upstream in a better home.
+
+## Tuya and `com.arteco`
+
+`https://github.com/philipostli/com.arteco` is a great project and already implements the ZS-301Z Tuya soil sensor.
+
+I have a few ZS-304Z devices, so I am building on Philip's work rather than pretending I invented agriculture.
+
+If Philip is happy with it, Tuya-related work should ideally go there.
+
+If not, it will live here in this project. No hard feelings, just more repositories with dirt in them.
+
+The ZS-304Z work is currently in a pull request on Philip's repository.
+
+## Open source attitude
+
+This project is opinionated, but not territorial.
+
+If Homey improves zone alarms, if Third Reality changes direction, if `com.arteco` accepts a PR, or if a better shared approach appears, I am very happy to collaborate and move things where they belong.
+
+The goal is not to be clever in a corner.
+The goal is to make soil sensors genuinely useful in Homey.
