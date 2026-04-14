@@ -1,0 +1,45 @@
+{
+  "drivers": {
+    "soil_moisture_sensor": {
+      "name": "Third Reality jordsensor",
+      "settings": {
+        "temperature_offset": {
+          "label": "Temperaturavvik",
+          "hint": "Legges til rapportert temperatur i grader Celsius."
+        },
+        "humidity_offset": {
+          "label": "Jordfuktighetsavvik",
+          "hint": "Legges til rapportert jordfuktighet i prosent."
+        },
+        "soil_warning": {
+          "label": "Tørkegrense for jord",
+          "hint": "Fuktighetsnivå under hvilken tørkealarm utløses (0-100 %)."
+        },
+        "temperature_decimals": {
+          "label": "Temperaturdesimaler"
+        },
+        "humidity_decimals": {
+          "label": "Jordfuktighetsdesimaler"
+        },
+        "temperature_report_min_interval": {
+          "label": "Minimumsintervall for temperaturrapport"
+        },
+        "temperature_report_max_interval": {
+          "label": "Maksintervall for temperaturrapport"
+        },
+        "temperature_report_change": {
+          "label": "Endring for temperaturrapport"
+        },
+        "humidity_report_min_interval": {
+          "label": "Minimumsintervall for jordfuktighetsrapport"
+        },
+        "humidity_report_max_interval": {
+          "label": "Maksintervall for jordfuktighetsrapport"
+        },
+        "humidity_report_change": {
+          "label": "Endring for jordfuktighetsrapport"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,332 @@
+{
+  "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
+  "id": "com.rothmann.soil",
+  "version": "0.0.1",
+  "compatibility": ">=12.5.0",
+  "sdk": 3,
+  "platforms": [
+    "local"
+  ],
+  "brandColor": "#4C7A45",
+  "name": {
+    "en": "Rothmann Soil Sensors",
+    "da": "Rothmann jordsensorer"
+  },
+  "description": {
+    "en": "Unified Homey support for soil moisture sensors.",
+    "da": "Samlet Homey-understøttelse til jordfugtighedssensorer."
+  },
+  "category": [
+    "tools"
+  ],
+  "permissions": [],
+  "images": {
+    "small": "/assets/images/small.png",
+    "large": "/assets/images/large.png",
+    "xlarge": "/assets/images/xlarge.png"
+  },
+  "author": {
+    "name": "Flemming Rothmann"
+  },
+  "source": "https://github.com/flemmingrothmann/com.rothmann.soil",
+  "drivers": [
+    {
+      "name": {
+        "en": "Third Reality Soil Moisture Sensor",
+        "da": "Third Reality jordfugtighedssensor"
+      },
+      "class": "sensor",
+      "capabilities": [
+        "measure_battery",
+        "measure_temperature",
+        "measure_soil_moisture",
+        "alarm_water"
+      ],
+      "platforms": [
+        "local"
+      ],
+      "energy": {
+        "batteries": [
+          "AA"
+        ]
+      },
+      "connectivity": [
+        "zigbee"
+      ],
+      "images": {
+        "small": "/drivers/soil_moisture_sensor/assets/images/small.png",
+        "large": "/drivers/soil_moisture_sensor/assets/images/large.png"
+      },
+      "zigbee": {
+        "manufacturerName": [
+          "Thirdreality",
+          "Third Reality, Inc"
+        ],
+        "productId": [
+          "3RSM0147Z"
+        ],
+        "endpoints": {
+          "1": {
+            "clusters": [
+              0,
+              1,
+              1026,
+              1029,
+              1032
+            ],
+            "bindings": [
+              1026,
+              1029,
+              1032
+            ]
+          }
+        },
+        "learnmode": {
+          "instruction": {
+            "en": "Long press the reset button until the red light comes on, and the blue light flashes when you release the button.",
+            "da": "Hold resetknappen nede, indtil den røde lampe tænder, og den blå lampe blinker, når du slipper knappen."
+          }
+        }
+      },
+      "id": "soil_moisture_sensor",
+      "settings": [
+        {
+          "id": "temperature_offset",
+          "type": "number",
+          "label": {
+            "en": "Temperature Offset",
+            "da": "Temperaturforskydning"
+          },
+          "value": 0,
+          "min": -20,
+          "max": 20,
+          "step": 0.1,
+          "units": {
+            "en": "°C",
+            "da": "°C"
+          }
+        },
+        {
+          "id": "humidity_offset",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Offset",
+            "da": "Fugtforskydning"
+          },
+          "value": 0,
+          "min": -30,
+          "max": 30,
+          "step": 0.1,
+          "units": {
+            "en": "%",
+            "da": "%"
+          }
+        },
+        {
+          "id": "soil_warning",
+          "type": "number",
+          "label": {
+            "en": "Soil Dryness Threshold",
+            "da": "Grænse for tør jord"
+          },
+          "hint": {
+            "en": "Moisture percentage below which the water alarm triggers (0-100%).",
+            "da": "Fugtighedsprocent under hvilken vandalarmen udløses (0-100 %)."
+          },
+          "value": 30,
+          "min": 0,
+          "max": 100,
+          "units": {
+            "en": "%",
+            "da": "%"
+          }
+        },
+        {
+          "id": "temperature_decimals",
+          "type": "dropdown",
+          "label": {
+            "en": "Temperature Decimals",
+            "da": "Temperaturdecimaler"
+          },
+          "value": "1",
+          "values": [
+            {
+              "id": "1",
+              "label": {
+                "en": "1 decimal",
+                "da": "1 decimal"
+              }
+            },
+            {
+              "id": "2",
+              "label": {
+                "en": "2 decimals",
+                "da": "2 decimaler"
+              }
+            }
+          ]
+        },
+        {
+          "id": "humidity_decimals",
+          "type": "dropdown",
+          "label": {
+            "en": "Soil Moisture Decimals",
+            "da": "Fugtdecimaler"
+          },
+          "value": "1",
+          "values": [
+            {
+              "id": "1",
+              "label": {
+                "en": "1 decimal",
+                "da": "1 decimal"
+              }
+            },
+            {
+              "id": "2",
+              "label": {
+                "en": "2 decimals",
+                "da": "2 decimaler"
+              }
+            }
+          ]
+        },
+        {
+          "id": "temperature_report_min_interval",
+          "type": "number",
+          "label": {
+            "en": "Temperature Report Minimum Interval",
+            "da": "Minimumsinterval for temperaturrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 180,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "seconds",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "temperature_report_max_interval",
+          "type": "number",
+          "label": {
+            "en": "Temperature Report Maximum Interval",
+            "da": "Maksimumsinterval for temperaturrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 300,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "seconds",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "temperature_report_change",
+          "type": "number",
+          "label": {
+            "en": "Temperature Report Change",
+            "da": "Ændring for temperaturrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 20,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "0.01(°C)",
+            "da": "0.01(°C)"
+          }
+        },
+        {
+          "id": "humidity_report_min_interval",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Report Minimum Interval",
+            "da": "Minimumsinterval for fugtrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 15,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "seconds",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "humidity_report_max_interval",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Report Maximum Interval",
+            "da": "Maksimumsinterval for fugtrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 300,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "seconds",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "humidity_report_change",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Report Change",
+            "da": "Ændring for fugtrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 20,
+          "min": 0,
+          "max": 32767,
+          "units": {
+            "en": "0.01(%)",
+            "da": "0.01(%)"
+          }
+        }
+      ]
+    }
+  ],
+  "capabilities": {
+    "measure_soil_moisture": {
+      "type": "number",
+      "title": {
+        "en": "Soil Moisture",
+        "no": "Jordfuktighet",
+        "da": "Fugt"
+      },
+      "icon": "/assets/measure_soil_moisture.svg",
+      "getable": true,
+      "setable": false,
+      "insights": true,
+      "units": {
+        "en": "%",
+        "no": "%",
+        "da": "%"
+      },
+      "min": 0,
+      "max": 100
+    }
+  }
+}

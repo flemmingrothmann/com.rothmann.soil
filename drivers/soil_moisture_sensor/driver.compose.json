@@ -1,0 +1,59 @@
+{
+  "name": {
+    "en": "Third Reality Soil Moisture Sensor",
+    "da": "Third Reality jordfugtighedssensor"
+  },
+  "class": "sensor",
+  "capabilities": [
+    "measure_battery",
+    "measure_temperature",
+    "measure_soil_moisture",
+    "alarm_water"
+  ],
+  "platforms": [
+    "local"
+  ],
+  "energy": {
+    "batteries": [
+      "AA"
+    ]
+  },
+  "connectivity": [
+    "zigbee"
+  ],
+  "images": {
+    "small": "{{driverAssetsPath}}/images/small.png",
+    "large": "{{driverAssetsPath}}/images/large.png"
+  },
+  "zigbee": {
+    "manufacturerName": [
+      "Thirdreality",
+      "Third Reality, Inc"
+    ],
+    "productId": [
+      "3RSM0147Z"
+    ],
+    "endpoints": {
+      "1": {
+        "clusters": [
+          0,
+          1,
+          1026,
+          1029,
+          1032
+        ],
+        "bindings": [
+          1026,
+          1029,
+          1032
+        ]
+      }
+    },
+    "learnmode": {
+      "instruction": {
+        "en": "Long press the reset button until the red light comes on, and the blue light flashes when you release the button.",
+        "da": "Hold resetknappen nede, indtil den røde lampe tænder, og den blå lampe blinker, når du slipper knappen."
+      }
+    }
+  }
+}

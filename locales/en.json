@@ -1,0 +1,51 @@
+{
+  "drivers": {
+    "soil_moisture_sensor": {
+      "name": "Third Reality Soil Moisture Sensor",
+      "settings": {
+        "temperature_offset": {
+          "label": "Temperature Offset",
+          "hint": "Applied to reported temperature values in degrees Celsius."
+        },
+        "humidity_offset": {
+          "label": "Soil Moisture Offset",
+          "hint": "Applied to reported soil moisture percentage values."
+        },
+        "soil_warning": {
+          "label": "Soil Dryness Threshold",
+          "hint": "Moisture percentage below which the water alarm triggers (0-100%)."
+        },
+        "temperature_decimals": {
+          "label": "Temperature Decimals"
+        },
+        "humidity_decimals": {
+          "label": "Soil Moisture Decimals"
+        },
+        "temperature_report_min_interval": {
+          "label": "Temperature Report Minimum Interval",
+          "hint": "Takes effect on the next device wake-up/report."
+        },
+        "temperature_report_max_interval": {
+          "label": "Temperature Report Maximum Interval",
+          "hint": "Takes effect on the next device wake-up/report."
+        },
+        "temperature_report_change": {
+          "label": "Temperature Report Change",
+          "hint": "Takes effect on the next device wake-up/report."
+        },
+        "humidity_report_min_interval": {
+          "label": "Soil Moisture Report Minimum Interval",
+          "hint": "Takes effect on the next device wake-up/report."
+        },
+        "humidity_report_max_interval": {
+          "label": "Soil Moisture Report Maximum Interval",
+          "hint": "Takes effect on the next device wake-up/report."
+        },
+        "humidity_report_change": {
+          "label": "Soil Moisture Report Change",
+          "hint": "Takes effect on the next device wake-up/report."
+        }
+      }
+    }
+  }
+}

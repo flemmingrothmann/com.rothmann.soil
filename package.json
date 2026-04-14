@@ -1,0 +1,16 @@
+{
+  "name": "com.rothmann.soil",
+  "version": "0.0.1",
+  "main": "app.js",
+  "scripts": {
+    "lint": "eslint --ext .js ."
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "eslint-config-athom": "^3.1.1"
+  },
+  "dependencies": {
+    "homey-zigbeedriver": "^2.2.5",
+    "zigbee-clusters": "^2.4.2"
+  }
+}

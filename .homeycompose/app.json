@@ -1,0 +1,48 @@
+{
+  "id": "com.rothmann.soil",
+  "version": "0.0.1",
+  "compatibility": ">=12.5.0",
+  "sdk": 3,
+  "platforms": ["local"],
+  "brandColor": "#4C7A45",
+  "name": {
+    "en": "Rothmann Soil Sensors",
+    "da": "Rothmann jordsensorer"
+  },
+  "description": {
+    "en": "Unified Homey support for soil moisture sensors.",
+    "da": "Samlet Homey-understøttelse til jordfugtighedssensorer."
+  },
+  "category": ["tools"],
+  "permissions": [],
+  "images": {
+    "small": "/assets/images/small.png",
+    "large": "/assets/images/large.png",
+    "xlarge": "/assets/images/xlarge.png"
+  },
+  "author": {
+    "name": "Flemming Rothmann"
+  },
+  "source": "https://github.com/flemmingrothmann/com.rothmann.soil",
+  "capabilities": {
+    "measure_soil_moisture": {
+      "type": "number",
+      "title": {
+        "en": "Soil Moisture",
+        "no": "Jordfuktighet",
+        "da": "Jordfugtighed"
+      },
+      "icon": "/assets/measure_soil_moisture.svg",
+      "getable": true,
+      "setable": false,
+      "insights": true,
+      "units": {
+        "en": "%",
+        "no": "%",
+        "da": "%"
+      },
+      "min": 0,
+      "max": 100
+    }
+  }
+}

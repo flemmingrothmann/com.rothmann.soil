@@ -1,0 +1,51 @@
+{
+  "drivers": {
+    "soil_moisture_sensor": {
+      "name": "Third Reality jordfugtighedssensor",
+      "settings": {
+        "temperature_offset": {
+          "label": "Temperaturforskydning",
+          "hint": "Anvendes på rapporterede temperaturværdier i grader Celsius."
+        },
+        "humidity_offset": {
+          "label": "Fugtforskydning",
+          "hint": "Anvendes på rapporterede fugtprocenter."
+        },
+        "soil_warning": {
+          "label": "Grænse for tør jord",
+          "hint": "Fugtighedsprocent under hvilken vandalarmen udløses (0-100 %)."
+        },
+        "temperature_decimals": {
+          "label": "Temperaturdecimaler"
+        },
+        "humidity_decimals": {
+          "label": "Fugtdecimaler"
+        },
+        "temperature_report_min_interval": {
+          "label": "Minimumsinterval for temperaturrapport",
+          "hint": "Træder i kraft ved næste wake-up/rapport."
+        },
+        "temperature_report_max_interval": {
+          "label": "Maksimumsinterval for temperaturrapport",
+          "hint": "Træder i kraft ved næste wake-up/rapport."
+        },
+        "temperature_report_change": {
+          "label": "Ændring for temperaturrapport",
+          "hint": "Træder i kraft ved næste wake-up/rapport."
+        },
+        "humidity_report_min_interval": {
+          "label": "Minimumsinterval for fugtrapport",
+          "hint": "Træder i kraft ved næste wake-up/rapport."
+        },
+        "humidity_report_max_interval": {
+          "label": "Maksimumsinterval for fugtrapport",
+          "hint": "Træder i kraft ved næste wake-up/rapport."
+        },
+        "humidity_report_change": {
+          "label": "Ændring for fugtrapport",
+          "hint": "Træder i kraft ved næste wake-up/rapport."
+        }
+      }
+    }
+  }
+}

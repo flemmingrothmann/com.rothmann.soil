@@ -1,0 +1,166 @@
+[ 
+  {
+    "id": "temperature_offset",
+    "type": "number",
+    "label": {
+      "en": "Temperature Offset",
+      "da": "Temperaturforskydning"
+    },
+    "value": 0,
+    "min": -20,
+    "max": 20,
+    "step": 0.1,
+    "units": { "en": "°C", "da": "°C" }
+  },
+  {
+    "id": "humidity_offset",
+    "type": "number",
+    "label": {
+      "en": "Soil Moisture Offset",
+      "da": "Fugtforskydning"
+    },
+    "value": 0,
+    "min": -30,
+    "max": 30,
+    "step": 0.1,
+    "units": { "en": "%", "da": "%" }
+  },
+  {
+    "id": "soil_warning",
+    "type": "number",
+    "label": {
+      "en": "Soil Dryness Threshold",
+      "da": "Grænse for tør jord"
+    },
+    "hint": {
+      "en": "Moisture percentage below which the water alarm triggers (0-100%).",
+      "da": "Fugtighedsprocent under hvilken vandalarmen udløses (0-100 %)."
+    },
+    "value": 30,
+    "min": 0,
+    "max": 100,
+    "units": { "en": "%", "da": "%" }
+  },
+  {
+    "id": "temperature_decimals",
+    "type": "dropdown",
+    "label": {
+      "en": "Temperature Decimals",
+      "da": "Temperaturdecimaler"
+    },
+    "value": "1",
+    "values": [
+      { "id": "1", "label": { "en": "1 decimal", "da": "1 decimal" } },
+      { "id": "2", "label": { "en": "2 decimals", "da": "2 decimaler" } }
+    ]
+  },
+  {
+    "id": "humidity_decimals",
+    "type": "dropdown",
+    "label": {
+      "en": "Soil Moisture Decimals",
+      "da": "Fugtdecimaler"
+    },
+    "value": "1",
+    "values": [
+      { "id": "1", "label": { "en": "1 decimal", "da": "1 decimal" } },
+      { "id": "2", "label": { "en": "2 decimals", "da": "2 decimaler" } }
+    ]
+  },
+  {
+    "id": "temperature_report_min_interval",
+    "type": "number",
+    "label": {
+      "en": "Temperature Report Minimum Interval",
+      "da": "Minimumsinterval for temperaturrapport"
+    },
+    "hint": {
+      "en": "Takes effect on the next device wake-up/report.",
+      "da": "Træder i kraft ved næste wake-up/rapport."
+    },
+    "value": 180,
+    "min": 0,
+    "max": 65535,
+    "units": { "en": "seconds", "da": "sekunder" }
+  },
+  {
+    "id": "temperature_report_max_interval",
+    "type": "number",
+    "label": {
+      "en": "Temperature Report Maximum Interval",
+      "da": "Maksimumsinterval for temperaturrapport"
+    },
+    "hint": {
+      "en": "Takes effect on the next device wake-up/report.",
+      "da": "Træder i kraft ved næste wake-up/rapport."
+    },
+    "value": 300,
+    "min": 0,
+    "max": 65535,
+    "units": { "en": "seconds", "da": "sekunder" }
+  },
+  {
+    "id": "temperature_report_change",
+    "type": "number",
+    "label": {
+      "en": "Temperature Report Change",
+      "da": "Ændring for temperaturrapport"
+    },
+    "hint": {
+      "en": "Takes effect on the next device wake-up/report.",
+      "da": "Træder i kraft ved næste wake-up/rapport."
+    },
+    "value": 20,
+    "min": 0,
+    "max": 65535,
+    "units": { "en": "0.01(°C)", "da": "0.01(°C)" }
+  },
+  {
+    "id": "humidity_report_min_interval",
+    "type": "number",
+    "label": {
+      "en": "Soil Moisture Report Minimum Interval",
+      "da": "Minimumsinterval for fugtrapport"
+    },
+    "hint": {
+      "en": "Takes effect on the next device wake-up/report.",
+      "da": "Træder i kraft ved næste wake-up/rapport."
+    },
+    "value": 15,
+    "min": 0,
+    "max": 65535,
+    "units": { "en": "seconds", "da": "sekunder" }
+  },
+  {
+    "id": "humidity_report_max_interval",
+    "type": "number",
+    "label": {
+      "en": "Soil Moisture Report Maximum Interval",
+      "da": "Maksimumsinterval for fugtrapport"
+    },
+    "hint": {
+      "en": "Takes effect on the next device wake-up/report.",
+      "da": "Træder i kraft ved næste wake-up/rapport."
+    },
+    "value": 300,
+    "min": 0,
+    "max": 65535,
+    "units": { "en": "seconds", "da": "sekunder" }
+  },
+  {
+    "id": "humidity_report_change",
+    "type": "number",
+    "label": {
+      "en": "Soil Moisture Report Change",
+      "da": "Ændring for fugtrapport"
+    },
+    "hint": {
+      "en": "Takes effect on the next device wake-up/report.",
+      "da": "Træder i kraft ved næste wake-up/rapport."
+    },
+    "value": 20,
+    "min": 0,
+    "max": 32767,
+    "units": { "en": "0.01(%)", "da": "0.01(%)" }
+  }
+]
