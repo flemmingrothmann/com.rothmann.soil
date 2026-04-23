@@ -85,3 +85,15 @@ If Homey improves zone alarms, if Third Reality changes direction, if `com.artec
 
 The goal is not to be clever in a corner.
 The goal is to make soil sensors genuinely useful in Homey.
+
+## Licensing and attribution
+
+This repository currently includes some device-specific assets derived from `hwzolin/com.thirdreality.app`, which is licensed under `GPL-3.0`.
+
+That currently applies to the copied Third Reality device assets used for the `soil_moisture_sensor` driver.
+
+See `THIRD_PARTY_NOTICES.md` for the exact files and attribution.
+
+In practice, that means that if this repository is distributed with those derived assets included, it should be treated accordingly from a GPL point of view.
+
+If I later want a cleaner licensing path for broader distribution, the straightforward fix is to replace those borrowed assets with original ones.

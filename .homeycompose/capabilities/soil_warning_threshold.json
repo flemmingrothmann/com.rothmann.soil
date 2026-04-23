@@ -1,0 +1,19 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Dry Soil Alarm Threshold",
+    "da": "Jordfugtgrænse"
+  },
+  "icon": "/assets/soil_warning_threshold.svg",
+  "uiComponent": "sensor",
+  "getable": true,
+  "setable": false,
+  "units": {
+    "en": "%",
+    "da": "%"
+  },
+  "min": 0,
+  "max": 100,
+  "step": 1,
+  "decimals": 0
+}

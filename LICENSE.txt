@@ -1,0 +1,13 @@
+This repository contains third-party derived assets from `hwzolin/com.thirdreality.app`.
+
+Upstream license: `GPL-3.0`
+
+If you distribute this repository or app builds with those derived assets included, you should do so in a way that is compatible with GPL-3.0 obligations.
+
+See:
+
+- `THIRD_PARTY_NOTICES.md`
+- `https://github.com/hwzolin/com.thirdreality.app`
+- `https://www.gnu.org/licenses/gpl-3.0.txt`
+
+For a cleaner future licensing path, replace the borrowed Third Reality assets with original assets.
