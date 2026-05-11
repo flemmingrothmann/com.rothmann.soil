@@ -307,9 +307,759 @@
           }
         }
       ]
+    },
+    {
+      "id": "zg-303z",
+      "name": {
+        "en": "ZG-303Z Soil Sensor",
+        "no": "ZG-303Z Jordsensor",
+        "da": "ZG-303Z Jordsensor"
+      },
+      "class": "sensor",
+      "capabilities": [
+        "measure_battery",
+        "measure_temperature",
+        "measure_humidity",
+        "measure_soil_moisture",
+        "soil_warning_threshold",
+        "alarm_water"
+      ],
+      "platforms": [
+        "local"
+      ],
+      "energy": {
+        "batteries": [
+          "AAA",
+          "AAA"
+        ]
+      },
+      "connectivity": [
+        "zigbee"
+      ],
+      "images": {
+        "small": "/drivers/zg-303z/assets/images/small.png",
+        "large": "/drivers/zg-303z/assets/images/large.png"
+      },
+      "zigbee": {
+        "manufacturerName": [
+          "HOBEIAN",
+          "_TZE200_wqashyqo",
+          "_TZE200_npj9bug3",
+          "_TZE200_wrmhp6b3"
+        ],
+        "productId": [
+          "ZG-303Z",
+          "TS0601"
+        ],
+        "endpoints": {
+          "1": {
+            "clusters": [
+              0,
+              1,
+              3,
+              61184
+            ]
+          }
+        }
+      },
+      "capabilitiesOptions": {
+        "measure_temperature": {
+          "title": {
+            "en": "Temperature",
+            "no": "Temperatur",
+            "da": "Temperatur"
+          }
+        },
+        "measure_humidity": {
+          "title": {
+            "en": "Air Humidity",
+            "no": "Luftfuktighet",
+            "da": "Luftfugtighed"
+          }
+        },
+        "alarm_water": {
+          "title": {
+            "en": "Water Alarm",
+            "no": "Vannalarm",
+            "da": "Vandalarm"
+          }
+        },
+        "soil_warning_threshold": {
+          "title": {
+            "en": "Dry Soil Alarm Threshold",
+            "no": "Tørkegrense for jord",
+            "da": "Jordfugtgrænse"
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "temperature_offset",
+          "type": "number",
+          "label": {
+            "en": "Temperature Offset",
+            "da": "Temperaturforskydning"
+          },
+          "value": 0,
+          "min": -20,
+          "max": 20,
+          "step": 0.1,
+          "units": {
+            "en": "°C",
+            "da": "°C"
+          }
+        },
+        {
+          "id": "humidity_offset",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Offset",
+            "da": "Fugtforskydning"
+          },
+          "value": 0,
+          "min": -30,
+          "max": 30,
+          "step": 0.1,
+          "units": {
+            "en": "%",
+            "da": "%"
+          }
+        },
+        {
+          "id": "soil_warning",
+          "type": "number",
+          "label": {
+            "en": "Soil Dryness Threshold",
+            "da": "Grænse for tør jord"
+          },
+          "hint": {
+            "en": "Moisture percentage below which the water alarm triggers (0-100%).",
+            "da": "Fugtighedsprocent under hvilken vandalarmen udløses (0-100 %)."
+          },
+          "value": 30,
+          "min": 0,
+          "max": 100,
+          "units": {
+            "en": "%",
+            "da": "%"
+          }
+        },
+        {
+          "id": "temperature_decimals",
+          "type": "dropdown",
+          "label": {
+            "en": "Temperature Decimals",
+            "da": "Temperaturdecimaler"
+          },
+          "value": "1",
+          "values": [
+            {
+              "id": "1",
+              "label": {
+                "en": "1 decimal",
+                "da": "1 decimal"
+              }
+            },
+            {
+              "id": "2",
+              "label": {
+                "en": "2 decimals",
+                "da": "2 decimaler"
+              }
+            }
+          ]
+        },
+        {
+          "id": "humidity_decimals",
+          "type": "dropdown",
+          "label": {
+            "en": "Soil Moisture Decimals",
+            "da": "Fugtdecimaler"
+          },
+          "value": "1",
+          "values": [
+            {
+              "id": "1",
+              "label": {
+                "en": "1 decimal",
+                "da": "1 decimal"
+              }
+            },
+            {
+              "id": "2",
+              "label": {
+                "en": "2 decimals",
+                "da": "2 decimaler"
+              }
+            }
+          ]
+        },
+        {
+          "id": "temperature_report_min_interval",
+          "type": "number",
+          "label": {
+            "en": "Temperature Report Minimum Interval",
+            "da": "Minimumsinterval for temperaturrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 60,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "seconds",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "temperature_report_max_interval",
+          "type": "number",
+          "label": {
+            "en": "Temperature Report Maximum Interval",
+            "da": "Maksimumsinterval for temperaturrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 1800,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "seconds",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "temperature_report_change",
+          "type": "number",
+          "label": {
+            "en": "Temperature Report Change",
+            "da": "Ændring for temperaturrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 50,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "0.01(°C)",
+            "da": "0.01(°C)"
+          }
+        },
+        {
+          "id": "humidity_report_min_interval",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Report Minimum Interval",
+            "da": "Minimumsinterval for fugtrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 60,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "seconds",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "humidity_report_max_interval",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Report Maximum Interval",
+            "da": "Maksimumsinterval for fugtrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 1800,
+          "min": 0,
+          "max": 65535,
+          "units": {
+            "en": "seconds",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "humidity_report_change",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Report Change",
+            "da": "Ændring for fugtrapport"
+          },
+          "hint": {
+            "en": "Takes effect on the next device wake-up/report.",
+            "da": "Træder i kraft ved næste wake-up/rapport."
+          },
+          "value": 50,
+          "min": 0,
+          "max": 32767,
+          "units": {
+            "en": "0.01(%)",
+            "da": "0.01(%)"
+          }
+        }
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "zs-301z",
+      "name": {
+        "en": "ZS-301Z Soil Sensor",
+        "no": "ZS-301Z Jordsensor",
+        "da": "ZS-301Z Jordsensor"
+      },
+      "class": "sensor",
+      "platforms": [
+        "local"
+      ],
+      "connectivity": [
+        "zigbee"
+      ],
+      "energy": {
+        "batteries": [
+          "AAA",
+          "AAA"
+        ]
+      },
+      "capabilities": [
+        "measure_soil_moisture",
+        "measure_soil_fertility",
+        "soil_warning_threshold",
+        "measure_temperature",
+        "measure_humidity",
+        "measure_luminance",
+        "measure_battery",
+        "alarm_water"
+      ],
+      "capabilitiesOptions": {
+        "measure_temperature": {
+          "title": {
+            "en": "Temperature",
+            "no": "Temperatur",
+            "da": "Temperatur"
+          }
+        },
+        "measure_humidity": {
+          "title": {
+            "en": "Air Humidity",
+            "no": "Luftfuktighet",
+            "da": "Luftfugtighed"
+          }
+        },
+        "alarm_water": {
+          "title": {
+            "en": "Water Alarm",
+            "no": "Vannalarm",
+            "da": "Vandalarm"
+          }
+        },
+        "soil_warning_threshold": {
+          "title": {
+            "en": "Dry Soil Alarm Threshold",
+            "no": "Tørkegrense for jord",
+            "da": "Jordfugtgrænse"
+          }
+        }
+      },
+      "zigbee": {
+        "manufacturerName": [
+          "A89G12C",
+          "Arteco",
+          "_TZE284_o9ofysmo",
+          "_TZE284_xc3vwx5a"
+        ],
+        "productId": [
+          "Arteco",
+          "ZS-301Z",
+          "TS0601"
+        ],
+        "endpoints": {
+          "1": {
+            "clusters": [
+              0,
+              1,
+              3,
+              61184
+            ]
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "temperature_calibration",
+          "type": "number",
+          "label": {
+            "en": "Temperature Calibration",
+            "no": "Temperaturkalibrering",
+            "da": "Temperaturkalibrering"
+          },
+          "hint": {
+            "en": "Offset in °C (-2.0 to +2.0). Takes effect on next report.",
+            "no": "Avvik i °C (-2,0 til +2,0). Trer i kraft ved neste rapport.",
+            "da": "Offset i °C (-2,0 til +2,0). Træder i kraft ved næste rapport."
+          },
+          "min": -2,
+          "max": 2,
+          "value": 0
+        },
+        {
+          "id": "humidity_calibration",
+          "type": "number",
+          "label": {
+            "en": "Humidity Calibration",
+            "no": "Luftfuktighetskalibrering",
+            "da": "Luftfugtighedskalibrering"
+          },
+          "hint": {
+            "en": "Offset to adjust humidity readings (-30 to +30)",
+            "no": "Avvik for å justere luftfuktighetsavlesning (-30 til +30)",
+            "da": "Offset til justering af luftfugtighedsmålinger (-30 til +30)"
+          },
+          "min": -30,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "soil_calibration",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Calibration",
+            "no": "Jordfuktighetskalibrering",
+            "da": "Fugtkalibrering"
+          },
+          "hint": {
+            "en": "Offset to adjust soil moisture readings (-30 to +30)",
+            "no": "Avvik for å justere jordfuktighetsavlesning (-30 til +30)",
+            "da": "Offset til justering af fugtmålinger (-30 til +30)"
+          },
+          "min": -30,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "soil_sampling",
+          "type": "number",
+          "label": {
+            "en": "Soil Sampling Interval",
+            "no": "Jordmålingsintervall",
+            "da": "Jordmålingsinterval"
+          },
+          "hint": {
+            "en": "How often the sensor measures soil moisture (5-3600 seconds)",
+            "no": "Hvor ofte sensoren måler jordfuktighet (5–3600 sekunder)",
+            "da": "Hvor ofte sensoren måler fugt (5-3600 sekunder)"
+          },
+          "min": 5,
+          "max": 3600,
+          "value": 600,
+          "units": {
+            "en": "seconds",
+            "no": "sekunder",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "soil_warning",
+          "type": "number",
+          "label": {
+            "en": "Soil Dryness Threshold",
+            "no": "Tørkegrense for jord",
+            "da": "Tørkegrænse for jord"
+          },
+          "hint": {
+            "en": "Moisture percentage below which water alarm triggers (0-100%)",
+            "no": "Fuktighetsnivå under hvilken tørkealarm utløses (0–100 %)",
+            "da": "Fugtighedsniveau under hvilket tørkealarmen udløses (0-100 %)"
+          },
+          "min": 0,
+          "max": 100,
+          "value": 30,
+          "units": {
+            "en": "%",
+            "no": "%",
+            "da": "%"
+          }
+        }
+      ],
+      "images": {
+        "small": "/drivers/zs-301z/assets/images/small.png",
+        "large": "/drivers/zs-301z/assets/images/large.png",
+        "xlarge": "/drivers/zs-301z/assets/images/xlarge.png"
+      },
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "zs-304z",
+      "name": {
+        "en": "ZS-304Z Soil Sensor",
+        "no": "ZS-304Z Jordsensor",
+        "da": "ZS-304Z Jordsensor"
+      },
+      "class": "sensor",
+      "platforms": [
+        "local"
+      ],
+      "connectivity": [
+        "zigbee"
+      ],
+      "energy": {
+        "batteries": [
+          "AAA",
+          "AAA"
+        ]
+      },
+      "capabilities": [
+        "measure_soil_moisture",
+        "soil_warning_threshold",
+        "measure_temperature",
+        "measure_humidity",
+        "measure_luminance",
+        "measure_battery",
+        "alarm_water"
+      ],
+      "capabilitiesOptions": {
+        "measure_temperature": {
+          "title": {
+            "en": "Temperature",
+            "no": "Temperatur",
+            "da": "Temperatur"
+          }
+        },
+        "measure_humidity": {
+          "title": {
+            "en": "Air Humidity",
+            "no": "Luftfuktighet",
+            "da": "Luftfugtighed"
+          }
+        },
+        "alarm_water": {
+          "title": {
+            "en": "Water Alarm",
+            "no": "Vannalarm",
+            "da": "Vandalarm"
+          }
+        },
+        "soil_warning_threshold": {
+          "title": {
+            "en": "Dry Soil Alarm Threshold",
+            "no": "Tørkegrense for jord",
+            "da": "Jordfugtgrænse"
+          }
+        }
+      },
+      "zigbee": {
+        "manufacturerName": [
+          "Arteco"
+        ],
+        "productId": [
+          "ZS-304Z"
+        ],
+        "endpoints": {
+          "1": {
+            "clusters": [
+              0,
+              1,
+              3,
+              1026,
+              1029,
+              61184
+            ]
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "temperature_calibration",
+          "type": "number",
+          "label": {
+            "en": "Temperature Calibration",
+            "no": "Temperaturkalibrering",
+            "da": "Temperaturkalibrering"
+          },
+          "hint": {
+            "en": "Offset in °C (-2.0 to +2.0). Takes effect on next report.",
+            "no": "Avvik i °C (-2,0 til +2,0). Trer i kraft ved neste rapport.",
+            "da": "Offset i °C (-2,0 til +2,0). Træder i kraft ved næste rapport."
+          },
+          "min": -2,
+          "max": 2,
+          "value": 0
+        },
+        {
+          "id": "humidity_calibration",
+          "type": "number",
+          "label": {
+            "en": "Humidity Calibration",
+            "no": "Luftfuktighetskalibrering",
+            "da": "Luftfugtighedskalibrering"
+          },
+          "hint": {
+            "en": "Offset to adjust humidity readings (-30 to +30)",
+            "no": "Avvik for å justere luftfuktighetsavlesning (-30 til +30)",
+            "da": "Offset til justering af luftfugtighedsmålinger (-30 til +30)"
+          },
+          "min": -30,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "soil_calibration",
+          "type": "number",
+          "label": {
+            "en": "Soil Moisture Calibration",
+            "no": "Jordfuktighetskalibrering",
+            "da": "Fugtkalibrering"
+          },
+          "hint": {
+            "en": "Offset to adjust soil moisture readings (-30 to +30)",
+            "no": "Avvik for å justere jordfuktighetsavlesning (-30 til +30)",
+            "da": "Offset til justering af fugtmålinger (-30 til +30)"
+          },
+          "min": -30,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "illuminance_calibration",
+          "type": "number",
+          "label": {
+            "en": "Illuminance Calibration",
+            "no": "Lyskalibrering",
+            "da": "Lyskalibrering"
+          },
+          "hint": {
+            "en": "Offset to adjust illuminance readings (-1000 to +1000 lx)",
+            "no": "Avvik for å justere lysavlesning (-1000 til +1000 lx)",
+            "da": "Offset til justering af lysmålinger (-1000 til +1000 lx)"
+          },
+          "min": -1000,
+          "max": 1000,
+          "value": 0,
+          "units": {
+            "en": "lx",
+            "no": "lx",
+            "da": "lx"
+          }
+        },
+        {
+          "id": "soil_sampling",
+          "type": "number",
+          "label": {
+            "en": "Soil Sampling Interval",
+            "no": "Jordmålingsintervall",
+            "da": "Jordmålingsinterval"
+          },
+          "hint": {
+            "en": "How often the sensor measures soil moisture (5-3600 seconds)",
+            "no": "Hvor ofte sensoren måler jordfuktighet (5–3600 sekunder)",
+            "da": "Hvor ofte sensoren måler fugt (5-3600 sekunder)"
+          },
+          "min": 5,
+          "max": 3600,
+          "value": 600,
+          "units": {
+            "en": "seconds",
+            "no": "sekunder",
+            "da": "sekunder"
+          }
+        },
+        {
+          "id": "soil_warning",
+          "type": "number",
+          "label": {
+            "en": "Soil Dryness Threshold",
+            "no": "Tørkegrense for jord",
+            "da": "Tørkegrænse for jord"
+          },
+          "hint": {
+            "en": "Moisture percentage below which water alarm triggers (0-100%)",
+            "no": "Fuktighetsnivå under hvilken tørkealarm utløses (0–100 %)",
+            "da": "Fugtighedsniveau under hvilket tørkealarmen udløses (0-100 %)"
+          },
+          "min": 0,
+          "max": 100,
+          "value": 30,
+          "units": {
+            "en": "%",
+            "no": "%",
+            "da": "%"
+          }
+        }
+      ],
+      "images": {
+        "small": "/drivers/zs-304z/assets/images/small.png",
+        "large": "/drivers/zs-304z/assets/images/large.png",
+        "xlarge": "/drivers/zs-304z/assets/images/xlarge.png"
+      },
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
     }
   ],
   "capabilities": {
+    "measure_soil_fertility": {
+      "type": "number",
+      "title": {
+        "en": "Soil Fertility",
+        "no": "Jordgjødsling",
+        "da": "Jordnæring"
+      },
+      "icon": "/assets/measure_soil_fertility.svg",
+      "getable": true,
+      "setable": false,
+      "insights": true,
+      "units": {
+        "en": "µS/cm",
+        "no": "µS/cm",
+        "da": "µS/cm"
+      },
+      "min": 0,
+      "max": 2000
+    },
     "measure_soil_moisture": {
       "type": "number",
       "title": {

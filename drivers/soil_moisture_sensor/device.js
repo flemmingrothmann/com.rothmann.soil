@@ -3,10 +3,12 @@
 const { ZigBeeDevice } = require('homey-zigbeedriver');
 const { CLUSTER } = require('zigbee-clusters');
 
+const { STATES, deriveAdaptiveAlarmConfig, reconcileAdaptiveAlarm } = require('../../lib/adaptiveSoilAlarm');
+
 class SoilMoistureSensorDevice extends ZigBeeDevice {
 
   static SOIL_WARNING_DEFAULT = 30;
-  static SOIL_WARNING_HYSTERESIS = 2;
+  static ADAPTIVE_ALARM_STORE_KEY = 'adaptive_alarm';
 
   zclNode = null;
   pendingSettingsApply = false;
@@ -40,6 +42,7 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
       }
 
       await this.syncSoilWarningThreshold(this.getSoilWarningThreshold());
+      await this.restoreAdaptiveAlarmState();
 
       await this.registerCapability('measure_battery', CLUSTER.POWER_CONFIGURATION);
 
@@ -81,11 +84,10 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
       : Math.round((measuredValue / 100) * 10) / 10;
 
     const soilMoisture = parsedValue + humidityOffset;
-    const threshold = this.getSoilWarningThreshold();
 
     this.log('measure_soil_moisture:', parsedValue, '+ offset', humidityOffset);
     this.setCapabilityValue('measure_soil_moisture', soilMoisture).catch(this.error);
-    this.updateDrySoilAlarm(soilMoisture, threshold);
+    this.handleAdaptiveAlarm(soilMoisture, 'humidity report').catch(this.error);
   }
 
   onBatteryPercentageRemainingAttributeReport(batteryPercentageRemaining) {
@@ -98,6 +100,17 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
   async onSettings({ oldSettings, newSettings, changedKeys }) {
     if (changedKeys.includes('soil_warning')) {
       this.syncSoilWarningThreshold(newSettings.soil_warning).catch(this.error);
+      const soilMoisture = this.getCapabilityValue('measure_soil_moisture');
+      if (typeof soilMoisture === 'number') {
+        this.handleAdaptiveAlarm(soilMoisture, 'soil warning setting', false, !this.isDeviceSleepy()).catch(this.error);
+      }
+    }
+
+    if (changedKeys.includes('humidity_report_max_interval')) {
+      const soilMoisture = this.getCapabilityValue('measure_soil_moisture');
+      if (typeof soilMoisture === 'number') {
+        this.handleAdaptiveAlarm(soilMoisture, 'poll interval setting', true, !this.isDeviceSleepy()).catch(this.error);
+      }
     }
 
     const reportingKeys = changedKeys.filter((key) => [
@@ -177,7 +190,10 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
   }
 
   async onDeviceAwake(reason) {
-    if (!this.pendingSettingsApply) {
+    const store = this.getAdaptiveAlarmStore();
+    const hasPendingAdaptiveApply = store.pending_adaptive_apply === true;
+
+    if (!this.pendingSettingsApply && !hasPendingAdaptiveApply) {
       return;
     }
 
@@ -191,14 +207,21 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
     this.lastWakeHandledAt = now;
     this.log(`Applying pending reporting settings after ${reason}`);
 
-    await this.setTemperatureAndHumidityConfigReport(this.getSettings(), this.getSettings(), [
-      'temperature_report_min_interval',
-      'temperature_report_max_interval',
-      'temperature_report_change',
-      'humidity_report_min_interval',
-      'humidity_report_max_interval',
-      'humidity_report_change',
-    ]);
+    if (this.pendingSettingsApply) {
+      await this.setTemperatureAndHumidityConfigReport(this.getSettings(), this.getSettings(), [
+        'temperature_report_min_interval',
+        'temperature_report_max_interval',
+        'temperature_report_change',
+        'humidity_report_min_interval',
+        'humidity_report_max_interval',
+        'humidity_report_change',
+      ]);
+    }
+
+    const soilMoisture = this.getCapabilityValue('measure_soil_moisture');
+    if (typeof soilMoisture === 'number') {
+      await this.handleAdaptiveAlarm(soilMoisture, `wake:${reason}`, true, true);
+    }
 
     this.pendingSettingsApply = false;
     this.log('Third Reality soil moisture settings changed');
@@ -226,26 +249,117 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
     const threshold = this.normalizeSoilWarningThreshold(value);
 
     await this.setCapabilityValue('soil_warning_threshold', threshold).catch(this.error);
-
-    const soilMoisture = this.getCapabilityValue('measure_soil_moisture');
-    if (typeof soilMoisture === 'number') {
-      this.updateDrySoilAlarm(soilMoisture, threshold);
-    }
   }
 
-  updateDrySoilAlarm(soilMoisture, threshold) {
-    const currentAlarm = this.getCapabilityValue('alarm_water');
+  getNormalPollInterval() {
+    const pollInterval = Number(this.getSetting('humidity_report_max_interval'));
+    return Number.isFinite(pollInterval) ? Math.max(1, Math.round(pollInterval)) : 300;
+  }
 
-    if (currentAlarm === true) {
-      if (soilMoisture >= threshold + SoilMoistureSensorDevice.SOIL_WARNING_HYSTERESIS) {
-        this.setCapabilityValue('alarm_water', false).catch(this.error);
-      }
+  getAdaptiveAlarmConfig() {
+    return deriveAdaptiveAlarmConfig({
+      alarmThreshold: this.getSoilWarningThreshold(),
+      pollInterval: this.getNormalPollInterval(),
+    });
+  }
+
+  async restoreAdaptiveAlarmState() {
+    const soilMoisture = this.getCapabilityValue('measure_soil_moisture');
+    if (typeof soilMoisture !== 'number') {
       return;
     }
 
-    if (soilMoisture < threshold) {
-      this.setCapabilityValue('alarm_water', true).catch(this.error);
+    await this.handleAdaptiveAlarm(soilMoisture, 'init', false, !this.isDeviceSleepy());
+  }
+
+  getAdaptiveAlarmStore() {
+    return this.getStoreValue(SoilMoistureSensorDevice.ADAPTIVE_ALARM_STORE_KEY) || {};
+  }
+
+  async setAdaptiveAlarmStore(store) {
+    await this.setStoreValue(SoilMoistureSensorDevice.ADAPTIVE_ALARM_STORE_KEY, store);
+  }
+
+  async handleAdaptiveAlarm(soilMoisture, reason, forceIntervalApply = false, allowIntervalApply = true) {
+    const config = this.getAdaptiveAlarmConfig();
+    const store = this.getAdaptiveAlarmStore();
+    const currentAlarm = this.getCapabilityValue('alarm_water') === true;
+    const next = reconcileAdaptiveAlarm({
+      currentState: store.current_state,
+      stateStartedAt: store.state_started_at,
+      previousMoisture: store.previous_moisture,
+      currentMoisture: soilMoisture,
+      currentAlarm,
+      now: Date.now(),
+      config,
+    });
+
+    const lastReportInterval = Number.isFinite(store.last_report_interval) ? store.last_report_interval : null;
+    const intervalNeedsApply = forceIntervalApply || lastReportInterval !== next.reportInterval;
+    const activationNeedsInterval = !currentAlarm
+      && next.alarmActive === true
+      && next.state === STATES.ALARM_AGGRESSIVE
+      && intervalNeedsApply;
+
+    if (activationNeedsInterval && !allowIntervalApply) {
+      await this.setAdaptiveAlarmStore({
+        current_state: store.current_state || STATES.NORMAL,
+        state_started_at: store.state_started_at || Date.now(),
+        previous_moisture: soilMoisture,
+        last_report_interval: lastReportInterval,
+        pending_adaptive_apply: true,
+      });
+
+      this.log(
+        `Deferring alarm activation until aggressive interval can be applied; moisture=${soilMoisture}, `
+        + `lower=${next.lower}, upper=${next.upper}, target_interval=${next.reportInterval}`,
+      );
+      return;
     }
+
+    if (allowIntervalApply && intervalNeedsApply) {
+      await this.applyAdaptiveReportInterval(next.reportInterval, config);
+    }
+
+    if (next.alarmActive !== currentAlarm) {
+      await this.setCapabilityValue('alarm_water', next.alarmActive).catch(this.error);
+      if (next.alarmActive) {
+        this.log(`Activated deferred dry-soil alarm after interval apply; moisture=${soilMoisture}, report_interval=${next.reportInterval}`);
+      }
+    }
+
+    if (next.transitioned || forceIntervalApply || intervalNeedsApply) {
+      this.log(
+        `Adaptive alarm transition (${reason}) ${store.current_state || 'UNKNOWN'} -> ${next.state}; `
+        + `moisture=${soilMoisture}, lower=${next.lower}, upper=${next.upper}, report_interval=${next.reportInterval}`,
+      );
+    }
+
+    await this.setAdaptiveAlarmStore({
+      current_state: next.state,
+      state_started_at: next.stateStartedAt,
+      previous_moisture: next.previousMoisture,
+      last_report_interval: next.reportInterval,
+      pending_adaptive_apply: false,
+    });
+  }
+
+  async applyAdaptiveReportInterval(reportInterval, config) {
+    if (!this.zclNode?.endpoints?.[1]?.clusters?.relativeHumidity) {
+      return;
+    }
+
+    const normalMinInterval = Number(this.getSetting('humidity_report_min_interval')) || config.normalInterval;
+    const reportChange = Number(this.getSetting('humidity_report_change')) || 0;
+    const isNormalInterval = reportInterval === config.normalInterval;
+
+    await this.zclNode.endpoints[1].clusters.relativeHumidity.configureReporting({
+      measuredValue: {
+        minInterval: isNormalInterval ? normalMinInterval : reportInterval,
+        maxInterval: reportInterval,
+        minChange: reportChange,
+      },
+    });
   }
 
 }

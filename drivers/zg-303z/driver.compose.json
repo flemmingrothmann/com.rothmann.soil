@@ -1,0 +1,79 @@
+{
+  "id": "zg-303z",
+  "name": {
+    "en": "ZG-303Z Soil Sensor",
+    "no": "ZG-303Z Jordsensor",
+    "da": "ZG-303Z Jordsensor"
+  },
+  "class": "sensor",
+  "capabilities": [
+    "measure_battery",
+    "measure_temperature",
+    "measure_humidity",
+    "measure_soil_moisture",
+    "soil_warning_threshold",
+    "alarm_water"
+  ],
+  "platforms": [
+    "local"
+  ],
+  "energy": {
+    "batteries": ["AAA", "AAA"]
+  },
+  "connectivity": [
+    "zigbee"
+  ],
+  "images": {
+    "small": "/drivers/zg-303z/assets/images/small.png",
+    "large": "/drivers/zg-303z/assets/images/large.png"
+  },
+  "zigbee": {
+    "manufacturerName": [
+      "HOBEIAN",
+      "_TZE200_wqashyqo",
+      "_TZE200_npj9bug3",
+      "_TZE200_wrmhp6b3"
+    ],
+    "productId": [
+      "ZG-303Z",
+      "TS0601"
+    ],
+    "endpoints": {
+      "1": {
+        "clusters": [
+          0,
+          1,
+          3,
+          61184
+        ]
+      }
+    }
+  },
+  "capabilitiesOptions": {
+    "measure_temperature": { "title": { "en": "Temperature", "no": "Temperatur", "da": "Temperatur" } },
+    "measure_humidity": { "title": { "en": "Air Humidity", "no": "Luftfuktighet", "da": "Luftfugtighed" } },
+    "alarm_water": { "title": { "en": "Water Alarm", "no": "Vannalarm", "da": "Vandalarm" } },
+    "soil_warning_threshold": { "title": { "en": "Dry Soil Alarm Threshold", "no": "Tørkegrense for jord", "da": "Jordfugtgrænse" } }
+  },
+  "settings": [
+    { "id": "temperature_calibration", "type": "number", "label": { "en": "Temperature Calibration", "no": "Temperaturkalibrering", "da": "Temperaturkalibrering" }, "hint": { "en": "Offset in °C applied by the sensor (-2.0 to +2.0). Takes effect on next report.", "no": "Avvik i °C som brukes av sensoren (-2,0 til +2,0). Trer i kraft ved neste rapport.", "da": "Offset i °C anvendt af sensoren (-2,0 til +2,0). Træder i kraft ved næste rapport." }, "min": -2, "max": 2, "value": 0 },
+    { "id": "humidity_calibration", "type": "number", "label": { "en": "Humidity Calibration", "no": "Luftfuktighetskalibrering", "da": "Luftfugtighedskalibrering" }, "hint": { "en": "Offset to adjust humidity readings (-30 to +30)", "no": "Avvik for å justere luftfuktighetsavlesning (-30 til +30)", "da": "Offset til justering af luftfugtighedsmålinger (-30 til +30)" }, "min": -30, "max": 30, "value": 0 },
+    { "id": "soil_calibration", "type": "number", "label": { "en": "Soil Moisture Calibration", "no": "Jordfuktighetskalibrering", "da": "Fugtkalibrering" }, "hint": { "en": "Offset to adjust soil moisture readings (-30 to +30)", "no": "Avvik for å justere jordfuktighetsavlesning (-30 til +30)", "da": "Offset til justering af fugtmålinger (-30 til +30)" }, "min": -30, "max": 30, "value": 0 },
+    { "id": "temperature_sampling", "type": "number", "label": { "en": "Temperature/Humidity Sampling Interval", "no": "Temperatur-/fuktintervall", "da": "Temperatur-/fugtinterval" }, "hint": { "en": "How often the sensor measures/reports temperature & humidity (5-3600 seconds). Takes effect on next report.", "no": "Hvor ofte sensoren måler/rapporterer temperatur og fukt (5-3600 sekunder). Trer i kraft ved neste rapport.", "da": "Hvor ofte sensoren måler/rapporterer temperatur og fugt (5-3600 sekunder). Træder i kraft ved næste rapport." }, "min": 5, "max": 3600, "value": 1800, "units": { "en": "seconds", "no": "sekunder", "da": "sekunder" } },
+    { "id": "soil_sampling", "type": "number", "label": { "en": "Soil Moisture Sampling Interval", "no": "Jordfuktighetsintervall", "da": "Jordfugtighedsinterval" }, "hint": { "en": "How often the sensor measures/reports soil moisture (5-3600 seconds). Takes effect on next report.", "no": "Hvor ofte sensoren måler/rapporterer jordfuktighet (5-3600 sekunder). Trer i kraft ved neste rapport.", "da": "Hvor ofte sensoren måler/rapporterer jordfugtighed (5-3600 sekunder). Træder i kraft ved næste rapport." }, "min": 5, "max": 3600, "value": 1800, "units": { "en": "seconds", "no": "sekunder", "da": "sekunder" } },
+    { "id": "soil_warning", "type": "number", "label": { "en": "Soil Dryness Threshold", "no": "Tørkegrense for jord", "da": "Tørkegrænse for jord" }, "hint": { "en": "Moisture percentage below which water alarm triggers (0-100%)", "no": "Fuktighetsnivå under hvilken tørkealarm utløses (0-100 %)", "da": "Fugtighedsniveau under hvilket tørkealarmen udløses (0-100 %)" }, "min": 0, "max": 100, "value": 30, "units": { "en": "%", "no": "%", "da": "%" } }
+  ],
+  "pair": [
+    {
+      "id": "list_devices",
+      "template": "list_devices",
+      "navigation": {
+        "next": "add_devices"
+      }
+    },
+    {
+      "id": "add_devices",
+      "template": "add_devices"
+    }
+  ]
+}

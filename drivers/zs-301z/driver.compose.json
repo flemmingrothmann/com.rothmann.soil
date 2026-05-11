@@ -1,0 +1,64 @@
+{
+  "id": "zs-301z",
+  "name": {
+    "en": "ZS-301Z Soil Sensor",
+    "no": "ZS-301Z Jordsensor",
+    "da": "ZS-301Z Jordsensor"
+  },
+  "class": "sensor",
+  "platforms": ["local"],
+  "connectivity": ["zigbee"],
+  "energy": {
+    "batteries": ["AAA", "AAA"]
+  },
+  "capabilities": [
+    "measure_soil_moisture",
+    "measure_soil_fertility",
+    "soil_warning_threshold",
+    "measure_temperature",
+    "measure_humidity",
+    "measure_luminance",
+    "measure_battery",
+    "alarm_water"
+  ],
+  "capabilitiesOptions": {
+    "measure_temperature": { "title": { "en": "Temperature", "no": "Temperatur", "da": "Temperatur" } },
+    "measure_humidity": { "title": { "en": "Air Humidity", "no": "Luftfuktighet", "da": "Luftfugtighed" } },
+    "alarm_water": { "title": { "en": "Water Alarm", "no": "Vannalarm", "da": "Vandalarm" } },
+    "soil_warning_threshold": { "title": { "en": "Dry Soil Alarm Threshold", "no": "Tørkegrense for jord", "da": "Jordfugtgrænse" } }
+  },
+  "zigbee": {
+    "manufacturerName": ["A89G12C", "Arteco", "_TZE284_o9ofysmo", "_TZE284_xc3vwx5a"],
+    "productId": ["Arteco", "ZS-301Z", "TS0601"],
+    "endpoints": {
+      "1": {
+        "clusters": [0, 1, 3, 61184]
+      }
+    }
+  },
+  "settings": [
+    { "id": "temperature_calibration", "type": "number", "label": { "en": "Temperature Calibration", "no": "Temperaturkalibrering", "da": "Temperaturkalibrering" }, "hint": { "en": "Offset in °C (-2.0 to +2.0). Takes effect on next report.", "no": "Avvik i °C (-2,0 til +2,0). Trer i kraft ved neste rapport.", "da": "Offset i °C (-2,0 til +2,0). Træder i kraft ved næste rapport." }, "min": -2, "max": 2, "value": 0 },
+    { "id": "humidity_calibration", "type": "number", "label": { "en": "Humidity Calibration", "no": "Luftfuktighetskalibrering", "da": "Luftfugtighedskalibrering" }, "hint": { "en": "Offset to adjust humidity readings (-30 to +30)", "no": "Avvik for å justere luftfuktighetsavlesning (-30 til +30)", "da": "Offset til justering af luftfugtighedsmålinger (-30 til +30)" }, "min": -30, "max": 30, "value": 0 },
+    { "id": "soil_calibration", "type": "number", "label": { "en": "Soil Moisture Calibration", "no": "Jordfuktighetskalibrering", "da": "Fugtkalibrering" }, "hint": { "en": "Offset to adjust soil moisture readings (-30 to +30)", "no": "Avvik for å justere jordfuktighetsavlesning (-30 til +30)", "da": "Offset til justering af fugtmålinger (-30 til +30)" }, "min": -30, "max": 30, "value": 0 },
+    { "id": "soil_sampling", "type": "number", "label": { "en": "Soil Sampling Interval", "no": "Jordmålingsintervall", "da": "Jordmålingsinterval" }, "hint": { "en": "How often the sensor measures soil moisture (5-3600 seconds)", "no": "Hvor ofte sensoren måler jordfuktighet (5–3600 sekunder)", "da": "Hvor ofte sensoren måler fugt (5-3600 sekunder)" }, "min": 5, "max": 3600, "value": 600, "units": { "en": "seconds", "no": "sekunder", "da": "sekunder" } },
+    { "id": "soil_warning", "type": "number", "label": { "en": "Soil Dryness Threshold", "no": "Tørkegrense for jord", "da": "Tørkegrænse for jord" }, "hint": { "en": "Moisture percentage below which water alarm triggers (0-100%)", "no": "Fuktighetsnivå under hvilken tørkealarm utløses (0–100 %)", "da": "Fugtighedsniveau under hvilket tørkealarmen udløses (0-100 %)" }, "min": 0, "max": 100, "value": 30, "units": { "en": "%", "no": "%", "da": "%" } }
+  ],
+  "images": {
+    "small": "/drivers/zs-301z/assets/images/small.png",
+    "large": "/drivers/zs-301z/assets/images/large.png",
+    "xlarge": "/drivers/zs-301z/assets/images/xlarge.png"
+  },
+  "pair": [
+    {
+      "id": "list_devices",
+      "template": "list_devices",
+      "navigation": {
+        "next": "add_devices"
+      }
+    },
+    {
+      "id": "add_devices",
+      "template": "add_devices"
+    }
+  ]
+}
