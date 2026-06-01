@@ -14,7 +14,25 @@
     "da": "Samlet Homey-understøttelse til jordfugtighedssensorer."
   },
   "category": ["tools"],
-  "permissions": [],
+  "permissions": ["homey:manager:api"],
+  "api": {
+    "dashboard": {
+      "method": "GET",
+      "path": "/dashboard"
+    },
+    "wateringMode": {
+      "method": "GET",
+      "path": "/watering-mode"
+    },
+    "toggleWateringMode": {
+      "method": "POST",
+      "path": "/watering-mode/toggle"
+    },
+    "configureWateringMode": {
+      "method": "POST",
+      "path": "/watering-mode/config"
+    }
+  },
   "images": {
     "small": "/assets/images/small.png",
     "large": "/assets/images/large.png",

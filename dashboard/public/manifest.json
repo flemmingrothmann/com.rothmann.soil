@@ -1,0 +1,8 @@
+{
+  "name": "Jordstatus",
+  "short_name": "Jordstatus",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f5ed",
+  "theme_color": "#2e4b2a"
+}

@@ -1,0 +1,21 @@
+{
+  "name": {
+    "en": "Soil Status",
+    "da": "Jordstatus"
+  },
+  "height": 360,
+  "api": {
+    "dashboard": {
+      "method": "GET",
+      "path": "/dashboard"
+    },
+    "wateringMode": {
+      "method": "GET",
+      "path": "/watering-mode"
+    },
+    "toggleWateringMode": {
+      "method": "POST",
+      "path": "/watering-mode/toggle"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+services:
+  soil-dashboard:
+    build: .
+    container_name: soil-dashboard
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - soil-dashboard-data:/data
+    environment:
+      HOMEY_URL: ${HOMEY_URL}
+      HOMEY_TOKEN: ${HOMEY_TOKEN}
+      HOMEY_APP_ID: com.rothmann.soil
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-Bogfinkevej11}
+      WATERING_FORBIDDEN_VARIABLE_ID: ${WATERING_FORBIDDEN_VARIABLE_ID:-5a2a34fd-8d2f-4c7d-b076-b1bb41e3a41f}
+
+volumes:
+  soil-dashboard-data:

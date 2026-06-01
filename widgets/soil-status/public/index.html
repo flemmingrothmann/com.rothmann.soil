@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script type="text/javascript" src="/homey.js"></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --soil: #4c7a45;
+        --soil-dark: #263f24;
+        --dry: #c94b32;
+        --muted: #667085;
+        --line: rgba(76, 122, 69, 0.18);
+        --card: rgba(255, 255, 255, 0.86);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        padding: 14px;
+        background: linear-gradient(145deg, #f5f8ef, #eaf1e4);
+        color: #172016;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      header {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      h1, p { margin: 0; }
+
+      h1 {
+        color: var(--soil-dark);
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .updated {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 4px;
+      }
+
+      .totals {
+        display: flex;
+        gap: 6px;
+      }
+
+      .pill {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--soil-dark);
+        font-size: 12px;
+        font-weight: 800;
+        padding: 6px 9px;
+        white-space: nowrap;
+      }
+
+      .pill.alarm { color: var(--dry); }
+
+      .mode-card {
+        align-items: center;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        cursor: pointer;
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 1fr auto;
+        margin-bottom: 10px;
+        padding: 10px 12px;
+      }
+
+      .mode-card.forbidden {
+        background: linear-gradient(145deg, #ffe0d6, #fff5f0 62%, rgba(255, 255, 255, 0.96));
+        border-color: rgba(201, 75, 50, 0.62);
+      }
+
+      .mode-title {
+        color: var(--soil-dark);
+        font-size: 14px;
+        font-weight: 900;
+      }
+
+      .mode-card.forbidden .mode-title { color: var(--dry); }
+
+      .mode-button {
+        appearance: none;
+        background: transparent;
+        border: 0;
+        display: block;
+        height: 0;
+        margin: 0;
+        opacity: 0;
+        overflow: hidden;
+        padding: 0;
+        width: 0;
+      }
+
+      .switch-track {
+        background: rgba(76, 122, 69, 0.22);
+        border-radius: 999px;
+        display: block;
+        height: 24px;
+        position: relative;
+        width: 46px;
+      }
+
+      .switch-thumb {
+        background: var(--soil);
+        border-radius: 50%;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+        display: block;
+        height: 18px;
+        left: 3px;
+        position: absolute;
+        top: 50%;
+        transform: translate(22px, -50%);
+        transition: transform 160ms ease, background 160ms ease;
+        width: 18px;
+      }
+
+      .mode-card.forbidden .switch-track { background: rgba(201, 75, 50, 0.24); }
+      .mode-card.forbidden .switch-thumb { background: var(--dry); transform: translate(0, -50%); }
+
+      .list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .section-title {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        margin: 12px 2px 2px;
+        text-transform: uppercase;
+      }
+
+      .zone-title {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 900;
+        margin: 10px 2px 2px;
+      }
+
+      .sensor {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 1fr 96px;
+        padding: 12px;
+      }
+
+      .sensor.alarm {
+        background: linear-gradient(145deg, #ffe0d6, #fff5f0 62%, rgba(255, 255, 255, 0.96));
+        border-color: rgba(201, 75, 50, 0.62);
+      }
+
+      .sensor.offline {
+        filter: saturate(0.55);
+        opacity: 0.72;
+      }
+
+      .sensor.compact {
+        align-items: center;
+        grid-template-columns: 1fr auto;
+        padding: 9px 11px;
+      }
+
+      .sensor.compact .name {
+        font-size: 14px;
+      }
+
+      .sensor.compact .zone {
+        font-size: 9px;
+      }
+
+      .sensor.compact .value {
+        font-size: 22px;
+      }
+
+      .zone {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .name {
+        color: var(--soil-dark);
+        font-size: 15px;
+        font-weight: 800;
+        margin-top: 2px;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 3px;
+      }
+
+      .status {
+        border-radius: 999px;
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        margin-right: 6px;
+        padding: 3px 7px;
+        text-transform: uppercase;
+      }
+
+      .status.ok {
+        background: rgba(76, 122, 69, 0.14);
+        color: var(--soil);
+      }
+
+      .status.alarm {
+        background: rgba(201, 75, 50, 0.14);
+        color: var(--dry);
+      }
+
+      .live-dot {
+        align-items: center;
+        color: var(--soil);
+        display: inline-flex;
+        font-size: 11px;
+        font-weight: 900;
+        gap: 6px;
+      }
+
+      .live-dot::before {
+        background: var(--soil);
+        border-radius: 50%;
+        box-shadow: 0 0 0 4px rgba(76, 122, 69, 0.13);
+        content: "";
+        display: block;
+        height: 9px;
+        width: 9px;
+      }
+
+      .facts {
+        display: grid;
+        gap: 6px;
+        grid-column: 1 / -1;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .fact {
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 10px;
+        padding-top: 6px;
+      }
+
+      .fact strong {
+        color: var(--soil-dark);
+        display: block;
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .value {
+        align-self: center;
+        color: var(--soil-dark);
+        font-size: 24px;
+        font-weight: 900;
+        line-height: 1;
+        text-align: right;
+      }
+
+      .value span {
+        color: var(--muted);
+        display: block;
+        font-size: 10px;
+        font-weight: 700;
+        margin-top: 2px;
+      }
+
+      .more {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 6px 2px 0;
+      }
+
+      .empty, .error {
+        background: var(--card);
+        border-radius: 16px;
+        color: var(--muted);
+        padding: 14px;
+      }
+
+      .error { color: var(--dry); }
+
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: linear-gradient(145deg, #1d281b, #101810);
+          color: #eef5ea;
+        }
+
+        :root {
+          --soil-dark: #d9f2cd;
+          --muted: #aab7a5;
+          --line: rgba(217, 242, 205, 0.16);
+          --card: rgba(28, 41, 26, 0.86);
+        }
+
+        .sensor.alarm { background: linear-gradient(145deg, rgba(91, 35, 27, 0.95), rgba(28, 41, 26, 0.86)); }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Jordstatus</h1>
+        <p class="updated" id="updated">Henter...</p>
+      </div>
+      <div class="totals">
+        <span class="pill" id="devices">-</span>
+        <span class="pill alarm" id="alarms">-</span>
+      </div>
+    </header>
+
+    <section id="watering-mode-card" class="mode-card" aria-label="Vandingsstatus">
+      <div id="watering-mode-title" class="mode-title">-</div>
+      <span class="switch-track"><span class="switch-thumb"></span></span>
+      <button id="watering-mode-toggle" class="mode-button" type="button" aria-pressed="false">Skift</button>
+    </section>
+
+    <main id="content"></main>
+
+    <script type="text/javascript">
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, function (character) {
+          return {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+          }[character];
+        });
+      }
+
+      function formatValue(value, suffix) {
+        return typeof value === 'number' ? value.toLocaleString('da-DK') + suffix : '-';
+      }
+
+      function formatTime(value) {
+        if (!value) return 'Aldrig';
+        return new Date(value).toLocaleString('da-DK', {
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+
+      function formatZonePath(device) {
+        var zonePath = Array.isArray(device.zonePath)
+          ? device.zonePath
+          : String(device.zonePathText || '').split(' / ');
+        return zonePath.slice(-2).join(' / ');
+      }
+
+      function flattenDevices(data) {
+        return data.zones.reduce(function (result, zone) {
+          return result.concat(zone.devices);
+        }, []);
+      }
+
+      function renderSensor(device, compact) {
+        var classes = 'sensor' + (device.needsAction ? ' alarm' : '') + (!device.live ? ' offline' : '');
+        var state = device.values.waterAlarm ? 'ALARM' : device.live ? 'OK' : 'Offline';
+        var statusClass = device.needsAction ? 'alarm' : 'ok';
+        var statusMarkup = device.live && !device.values.waterAlarm
+          ? '<span class="live-dot">OK</span>'
+          : '<span class="status ' + statusClass + '">' + state + '</span>';
+
+        if (compact) {
+          return '<article class="' + classes + ' compact">'
+            + '<div>'
+            + '<div class="name">' + escapeHtml(device.name) + '</div>'
+            + '<p class="meta">Grænse ' + formatValue(device.values.alarmThreshold, '%') + '</p>'
+            + '</div>'
+            + '<div class="value">' + formatValue(device.values.soilMoisture, '') + '<span>% fugt</span></div>'
+            + '</article>';
+        }
+
+        return '<article class="' + classes + '">'
+          + '<div>'
+          + '<div class="zone">' + escapeHtml(formatZonePath(device)) + '</div>'
+          + '<div class="name">' + escapeHtml(device.name) + '</div>'
+          + '<p class="meta">' + statusMarkup + ' ' + escapeHtml(device.driverName) + '</p>'
+          + '</div>'
+          + '<div class="value">' + formatValue(device.values.soilMoisture, '') + '<span>% fugt</span></div>'
+          + '<div class="facts">'
+          + '<div class="fact"><strong>' + formatValue(device.values.alarmThreshold, '%') + '</strong>Alarmgrænse</div>'
+          + '<div class="fact"><strong>' + formatValue(device.values.battery, '%') + '</strong>Batteri</div>'
+          + '<div class="fact"><strong>' + formatValue(device.values.temperature, ' °C') + '</strong>Temperatur</div>'
+          + '<div class="fact"><strong>' + formatTime(device.lastReportedAt) + '</strong>Sidst set</div>'
+          + '</div>'
+          + '</article>';
+      }
+
+      function renderDeviceSections(devices) {
+        var waterAlarmDevices = devices.filter(function (device) { return device.values.waterAlarm; });
+        var offlineDevices = devices.filter(function (device) { return !device.values.waterAlarm && !device.live; });
+        var actionDevices = waterAlarmDevices.concat(offlineDevices);
+        var normalDevices = devices.filter(function (device) { return !device.needsAction; });
+        var html = '<section class="list">';
+
+        if (waterAlarmDevices.length > 0) {
+          html += '<div class="section-title">Vandalarmer</div>'
+            + waterAlarmDevices.map(function (device) { return renderSensor(device, false); }).join('');
+        }
+
+        if (offlineDevices.length > 0) {
+          html += '<div class="section-title">Offline sensorer</div>'
+            + offlineDevices.map(function (device) { return renderSensor(device, false); }).join('');
+        }
+
+        if (actionDevices.length === 0) {
+          html += '<div class="empty">Ingen sensorer kræver handling lige nu.</div>';
+        }
+
+        if (normalDevices.length > 0) {
+          var zones = normalDevices.reduce(function (result, device) {
+            var zoneKey = device.zonePathText || 'Ukendt zone';
+            if (!result[zoneKey]) result[zoneKey] = [];
+            result[zoneKey].push(device);
+            return result;
+          }, {});
+
+          html += '<div class="section-title">OK sensorer</div>';
+          Object.keys(zones).forEach(function (zonePath) {
+            html += '<div class="zone-title">' + escapeHtml(formatZonePath({ zonePathText: zonePath })) + '</div>'
+              + zones[zonePath].map(function (device) { return renderSensor(device, true); }).join('');
+          });
+        }
+
+        return html + '</section>';
+      }
+
+      function render(data) {
+        document.getElementById('devices').textContent = data.totals.devices + ' sensorer';
+        document.getElementById('alarms').textContent = data.totals.alarms + ' alarm';
+        document.getElementById('updated').textContent = new Date(data.generatedAt).toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+
+        var devices = flattenDevices(data);
+        var content = document.getElementById('content');
+        if (devices.length === 0) {
+          content.innerHTML = '<div class="empty">Ingen jordfugtsensorer fundet.</div>';
+          Homey.setHeight(170).catch(function () {});
+          return;
+        }
+
+        content.innerHTML = renderDeviceSections(devices);
+
+        var actionCount = devices.filter(function (device) { return device.needsAction; }).length;
+        var normalCount = devices.length - actionCount;
+        Homey.setHeight(Math.min(620, 116 + (actionCount * 122) + (normalCount * 72))).catch(function () {});
+      }
+
+      function renderWateringMode(state) {
+        var card = document.getElementById('watering-mode-card');
+        var title = document.getElementById('watering-mode-title');
+        var button = document.getElementById('watering-mode-toggle');
+
+        card.classList.toggle('forbidden', state.wateringForbidden === true);
+        button.setAttribute('aria-pressed', state.wateringForbidden ? 'true' : 'false');
+        title.textContent = state.wateringForbidden ? 'Vanding forbudt' : 'Vanding tilladt';
+        button.textContent = 'Skift';
+        button.setAttribute('aria-label', state.wateringForbidden ? 'Slå vanding tilladt til' : 'Slå vanding forbudt til');
+      }
+
+      function loadWateringMode() {
+        return Homey.api('GET', '/watering-mode', {})
+          .then(renderWateringMode)
+          .catch(function () {
+            document.getElementById('watering-mode-title').textContent = 'Kunne ikke hente vandingstilstand';
+            document.getElementById('watering-mode-toggle').disabled = true;
+          });
+      }
+
+      function toggleWateringMode() {
+        var button = document.getElementById('watering-mode-toggle');
+        button.disabled = true;
+
+        Homey.api('POST', '/watering-mode/toggle', {})
+          .then(renderWateringMode)
+          .catch(function () {})
+          .finally(function () {
+            button.disabled = false;
+          });
+      }
+
+      function onHomeyReady(HomeyInstance) {
+        window.Homey = HomeyInstance;
+
+        document.getElementById('watering-mode-card').addEventListener('click', function () {
+          var button = document.getElementById('watering-mode-toggle');
+          if (button.disabled) return;
+          toggleWateringMode();
+        });
+
+        loadWateringMode();
+
+        Homey.api('GET', '/dashboard', {})
+          .then(function (result) {
+            render(result);
+            Homey.ready();
+          })
+          .catch(function (error) {
+            document.getElementById('content').innerHTML = '<div class="error">Kunne ikke hente jordstatus: ' + escapeHtml(error.message || error) + '</div>';
+            Homey.ready({ height: 190 });
+          });
+      }
+    </script>
+  </body>
+</html>

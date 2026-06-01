@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#2e4b2a">
+    <title>Jordstatus</title>
+    <link rel="manifest" href="/manifest.json?v=20260526-2">
+    <link rel="stylesheet" href="/styles.css?v=20260526-2">
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Rothmann Soil</p>
+        <h1>Jordstatus</h1>
+        <p id="updated" class="updated">Henter sensorer...</p>
+        <p id="next-refresh" class="updated refresh-note">Auto-refresh aktiv</p>
+        <nav class="tabs" aria-label="Dashboard">
+          <button id="soil-tab" class="tab active" type="button">Jordfugt</button>
+          <button id="watering-tab" class="tab" type="button">Vanding</button>
+        </nav>
+      </div>
+      <button id="refresh" class="refresh" type="button">Opdater</button>
+    </header>
+
+    <section class="summary" aria-label="Opsummering">
+      <article><strong id="total-devices">-</strong><span id="total-devices-label">Sensorer</span></article>
+      <article class="danger"><strong id="total-alarms">-</strong><span id="total-alarms-label">Kræver handling</span></article>
+      <article><strong id="total-offline">-</strong><span id="total-offline-label">Offline</span></article>
+      <article id="watering-mode-card" class="mode-card">
+        <strong id="watering-mode-title">-</strong>
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <button id="watering-mode-toggle" class="mode-button" type="button" aria-pressed="false">Skift</button>
+      </article>
+    </section>
+
+    <main id="content" class="content"></main>
+
+    <template id="empty-template">
+      <section class="empty">Ingen jordfugtsensorer fundet.</section>
+    </template>
+
+    <script src="/app.js?v=20260526-2"></script>
+  </body>
+</html>
