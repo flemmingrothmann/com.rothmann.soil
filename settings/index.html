@@ -10,8 +10,6 @@
         --soil: #4c7a45;
         --soil-dark: #2e4b2a;
         --dry: #c94b32;
-        --offline: #667085;
-        --card: #ffffff;
         --muted: #667085;
         --line: #d8dfd3;
         --background: #f3f6ef;
@@ -20,22 +18,14 @@
       * { box-sizing: border-box; }
 
       body {
-        margin: 0;
-        padding: 24px;
         background: radial-gradient(circle at top left, #eef8df, var(--background) 38%, #edf2f7);
         color: #172016;
         font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 24px;
       }
 
-      header {
-        display: flex;
-        gap: 16px;
-        align-items: flex-end;
-        justify-content: space-between;
-        margin-bottom: 24px;
-      }
-
-      h1, h2, h3, p { margin: 0; }
+      h1, p { margin: 0; }
 
       h1 {
         color: var(--soil-dark);
@@ -48,62 +38,37 @@
         margin-top: 8px;
       }
 
-      .zone-path {
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        margin-bottom: 6px;
-        text-transform: uppercase;
-      }
-
-      .summary {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(90px, 1fr));
-        gap: 10px;
-      }
-
-      .summary-card, .sensor-card {
-        background: color-mix(in srgb, var(--card) 88%, transparent);
+      .panel {
+        background: rgba(255, 255, 255, 0.9);
         border: 1px solid rgba(76, 122, 69, 0.18);
         border-radius: 22px;
         box-shadow: 0 18px 50px rgba(46, 75, 42, 0.12);
+        margin-top: 24px;
+        max-width: 520px;
+        padding: 18px;
       }
 
-      .summary-card {
-        padding: 14px;
-        text-align: center;
-      }
-
-      .summary-card strong {
-        display: block;
-        color: var(--soil-dark);
-        font-size: 28px;
-      }
-
-      .summary-card span {
-        color: var(--muted);
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      .summary-card.mode-card {
+      .mode-card {
+        align-items: center;
         cursor: pointer;
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
       }
 
-      .summary-card.mode-card.forbidden {
+      .mode-card.forbidden {
         background: linear-gradient(145deg, #ffe0d6, #fff5f0 62%, rgba(255, 255, 255, 0.96));
         border-color: rgba(201, 75, 50, 0.62);
       }
 
-      .summary-card.mode-card strong {
-        font-size: 16px;
-        line-height: 1.1;
-        min-height: 36px;
+      .mode-title {
+        color: var(--soil-dark);
+        display: block;
+        font-size: 22px;
+        font-weight: 900;
       }
 
-      .summary-card.mode-card.forbidden strong { color: var(--dry); }
+      .mode-card.forbidden .mode-title { color: var(--dry); }
 
       .mode-button {
         appearance: none;
@@ -122,10 +87,10 @@
         background: rgba(76, 122, 69, 0.22);
         border-radius: 999px;
         display: block;
-        height: 28px;
-        margin: 12px auto 0;
+        flex: 0 0 auto;
+        height: 32px;
         position: relative;
-        width: 54px;
+        width: 62px;
       }
 
       .switch-thumb {
@@ -133,448 +98,45 @@
         border-radius: 50%;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
         display: block;
-        height: 22px;
+        height: 26px;
         left: 3px;
         position: absolute;
         top: 50%;
-        transform: translate(26px, -50%);
+        transform: translate(30px, -50%);
         transition: transform 160ms ease, background 160ms ease;
-        width: 22px;
+        width: 26px;
       }
 
       .mode-card.forbidden .switch-track { background: rgba(201, 75, 50, 0.24); }
       .mode-card.forbidden .switch-thumb { background: var(--dry); transform: translate(0, -50%); }
 
-      .zone {
-        margin: 0 0 28px;
-      }
-
-      .zone h2 {
-        color: var(--soil-dark);
-        margin: 0 0 12px;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 16px;
-      }
-
-      .sensor-card {
-        overflow: hidden;
-        padding: 18px;
-        position: relative;
-      }
-
-      .sensor-card.alarm {
-        background: linear-gradient(145deg, #ffe0d6, #fff5f0 62%, rgba(255, 255, 255, 0.96));
-        border-color: rgba(201, 75, 50, 0.62);
-      }
-
-      .sensor-card.offline {
-        filter: saturate(0.55);
-        opacity: 0.78;
-      }
-
-      .sensor-header {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .sensor-name {
-        color: var(--soil-dark);
-        font-size: 20px;
-        font-weight: 750;
-      }
-
-      .badge {
-        align-self: flex-start;
-        border-radius: 999px;
-        color: #fff;
-        font-size: 12px;
-        font-weight: 700;
-        padding: 6px 10px;
-        white-space: nowrap;
-      }
-
-      .badge.ok { background: var(--soil); }
-      .badge.alarm { background: var(--dry); }
-      .badge.offline { background: var(--offline); }
-
-      .live-dot {
-        align-items: center;
-        color: var(--soil);
-        display: inline-flex;
-        font-size: 13px;
-        font-weight: 900;
-        gap: 6px;
-        white-space: nowrap;
-      }
-
-      .live-dot::before {
-        background: var(--soil);
-        border-radius: 50%;
-        box-shadow: 0 0 0 4px rgba(76, 122, 69, 0.13);
-        content: "";
-        display: block;
-        height: 10px;
-        width: 10px;
-      }
-
-      .section-title {
-        color: var(--soil-dark);
-        font-size: 24px;
-        margin: 18px 0 12px;
-      }
-
-      .zone-title {
-        color: var(--muted);
-        font-size: 16px;
-        font-weight: 900;
-        margin: 14px 0 8px;
-      }
-
-      .moisture {
-        align-items: baseline;
-        display: flex;
-        gap: 10px;
-        margin: 14px 0 10px;
-      }
-
-      .moisture strong {
-        font-size: 46px;
-        line-height: 0.95;
-      }
-
-      .moisture span { color: var(--muted); }
-
-      .threshold-inline {
-        color: var(--dry);
-        font-size: 14px;
-        font-weight: 900;
-        margin-left: auto;
-        white-space: nowrap;
-      }
-
-      .facts {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 8px;
-        margin: 12px 0;
-      }
-
-      .fact {
+      .note {
         border-top: 1px solid var(--line);
         color: var(--muted);
-        padding-top: 8px;
-      }
-
-      .fact strong {
-        color: #172016;
-        display: block;
-      }
-
-      svg.graph {
-        display: block;
-        height: 96px;
-        margin-top: 14px;
-        width: 100%;
-      }
-
-      .empty, .error {
-        background: #fff;
-        border-radius: 18px;
-        color: var(--muted);
-        padding: 18px;
-      }
-
-      .error { color: var(--dry); }
-
-      @media (max-width: 720px) {
-        body { padding: 16px; }
-        header { display: block; }
-        .summary {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          margin-top: 16px;
-          min-width: 0;
-        }
+        margin-top: 18px;
+        padding-top: 18px;
       }
     </style>
   </head>
   <body>
     <header>
-      <div>
-        <h1>Jordstatus</h1>
-        <p class="subtitle" id="updated">Henter sensorer...</p>
-      </div>
-      <section class="summary" aria-label="Opsummering">
-        <div class="summary-card"><strong id="total-devices">-</strong><span>Sensorer</span></div>
-        <div class="summary-card"><strong id="total-alarms">-</strong><span>Alarmer</span></div>
-        <div class="summary-card"><strong id="total-offline">-</strong><span>Offline</span></div>
-        <div id="watering-mode-card" class="summary-card mode-card">
-          <strong id="watering-mode-title">-</strong>
-          <span class="switch-track"><span class="switch-thumb"></span></span>
-          <button id="watering-mode-toggle" class="mode-button" type="button" aria-pressed="false">Skift</button>
-        </div>
-      </section>
+      <h1>Jordsensorer</h1>
+      <p class="subtitle">Dashboardet vises nu i web-dashboardet via Wingman DB.</p>
     </header>
 
-    <main id="dashboard"></main>
+    <main class="panel">
+      <section id="watering-mode-card" class="mode-card" role="button" tabindex="0">
+        <div>
+          <strong id="watering-mode-title" class="mode-title">Henter...</strong>
+          <p class="subtitle">Klik for at skifte vandingstilstand.</p>
+        </div>
+        <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+        <button id="watering-mode-toggle" class="mode-button" type="button" aria-pressed="false">Skift</button>
+      </section>
+      <p class="note">Sensorstatus, alarmer, historik og zoner er flyttet ud af Homey-appen og læses fra Wingman på hjemmeserveren.</p>
+    </main>
 
     <script type="text/javascript">
-      function formatValue(value, suffix) {
-        return typeof value === 'number' ? value.toLocaleString('da-DK') + suffix : '-';
-      }
-
-      function escapeHtml(value) {
-        return String(value).replace(/[&<>"']/g, function (character) {
-          return {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
-          }[character];
-        });
-      }
-
-      function formatTime(value) {
-        return value ? new Date(value).toLocaleString('da-DK') : 'Ingen rapport endnu';
-      }
-
-      function getZoneParentId(zone) {
-        return zone && (zone.parent || zone.parentId) || null;
-      }
-
-      function getZonePath(zoneId, zones, seen) {
-        var zone = zones[zoneId];
-        if (!zone) return zoneId ? [zoneId] : ['Ukendt zone'];
-        if ((seen || []).indexOf(zoneId) !== -1) return [zone.name || zoneId];
-
-        var parentId = getZoneParentId(zone);
-        var ownName = zone.name || zoneId;
-        if (!parentId) return [ownName];
-
-        return getZonePath(parentId, zones, (seen || []).concat(zoneId)).concat(ownName);
-      }
-
-      function getZoneInfo(zones) {
-        return Object.entries(zones || {}).reduce(function (result, entry) {
-          var id = entry[0];
-          var zone = entry[1];
-          var path = getZonePath(id, zones || {});
-          result[id] = {
-            id: id,
-            name: zone.name || id,
-            path: path,
-            pathText: path.join(' / ')
-          };
-          return result;
-        }, {});
-      }
-
-      function regroupDashboardByZone(data) {
-        var devices = data.zones.reduce(function (result, zone) {
-          return result.concat(zone.devices);
-        }, []);
-
-        devices.sort(function (a, b) {
-          return a.zonePathText.localeCompare(b.zonePathText, 'da')
-            || Number(b.needsAction) - Number(a.needsAction)
-            || a.name.localeCompare(b.name, 'da');
-        });
-
-        data.zones = devices.reduce(function (result, device) {
-          var zoneKey = device.zoneId || 'unknown';
-          var zone = result.find(function (item) { return item.id === zoneKey; });
-          if (!zone) {
-            zone = {
-              id: zoneKey,
-              name: device.zoneName,
-              path: device.zonePath,
-              pathText: device.zonePathText,
-              devices: []
-            };
-            result.push(zone);
-          }
-          zone.devices.push(device);
-          return result;
-        }, []);
-      }
-
-      function enrichDashboardZones(data) {
-        return Promise.all([
-          fetch('/api/manager/devices/device', { cache: 'no-store' }).then(function (response) { return response.json(); }),
-          fetch('/api/manager/zones/zone', { cache: 'no-store' }).then(function (response) { return response.json(); })
-        ]).then(function (responses) {
-          var devices = responses[0];
-          var zones = responses[1];
-          var zoneInfo = getZoneInfo(zones);
-          var deviceZoneMap = Object.values(devices || {}).reduce(function (result, device) {
-            if (device && device.name && device.zone) result[device.name] = device.zone;
-            return result;
-          }, {});
-
-          data.zones.forEach(function (zone) {
-            zone.devices.forEach(function (device) {
-              var zoneId = deviceZoneMap[device.name] || device.zoneId;
-              var nextZone = zoneInfo[zoneId];
-              if (!nextZone) return;
-
-              device.zoneId = zoneId;
-              device.zoneName = nextZone.name;
-              device.zonePath = nextZone.path;
-              device.zonePathText = nextZone.pathText;
-            });
-          });
-
-          regroupDashboardByZone(data);
-          return data;
-        }).catch(function () {
-          return data;
-        });
-      }
-
-      function graphPath(history) {
-        if (!history || history.length < 2) return '';
-        var width = 320;
-        var height = 82;
-        var minT = history[0].t;
-        var maxT = history[history.length - 1].t;
-        var rangeT = Math.max(1, maxT - minT);
-
-        return history.map(function (point, index) {
-          var x = ((point.t - minT) / rangeT) * width;
-          var y = height - ((Math.max(0, Math.min(100, point.v)) / 100) * height) + 6;
-          return (index === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1);
-        }).join(' ');
-      }
-
-      function thresholdY(device) {
-        if (typeof device.values.alarmThreshold !== 'number') return null;
-        return 82 - ((Math.max(0, Math.min(100, device.values.alarmThreshold)) / 100) * 82) + 6;
-      }
-
-      function renderLevelLines() {
-        return [25, 50, 75, 100].map(function (level) {
-          var y = 82 - ((level / 100) * 82) + 6;
-          return '<path d="M0 ' + y.toFixed(1) + 'H320" stroke="rgba(102,112,133,0.16)" stroke-width="1" />';
-        }).join('');
-      }
-
-      function renderDayMarkers(history) {
-        if (!history || history.length < 2) return '';
-
-        var width = 320;
-        var minT = history[0].t;
-        var maxT = history[history.length - 1].t;
-        var rangeT = Math.max(1, maxT - minT);
-        var date = new Date(minT);
-        date.setHours(0, 0, 0, 0);
-        date.setDate(date.getDate() + 1);
-
-        var markers = '';
-        while (date.getTime() < maxT) {
-          var x = ((date.getTime() - minT) / rangeT) * width;
-          var label = date.toLocaleDateString('da-DK', { weekday: 'short' });
-          markers += '<path d="M' + x.toFixed(1) + ' 6V90" stroke="rgba(102,112,133,0.22)" />'
-            + '<text x="' + Math.min(300, x + 3).toFixed(1) + '" y="88" fill="#667085" font-size="10" font-weight="700">' + label + '</text>';
-          date.setDate(date.getDate() + 1);
-        }
-
-        return markers;
-      }
-
-      function renderGraph(device) {
-        var path = graphPath(device.history);
-        if (!path) {
-          return '<p class="subtitle">Grafen udfyldes, når der er mindst to rapporter.</p>';
-        }
-
-        var alarmY = thresholdY(device);
-        var alarmLine = alarmY === null ? '' : '<path d="M0 ' + alarmY.toFixed(1) + 'H320" stroke="#c94b32" stroke-dasharray="5 5" stroke-width="2" />';
-
-        return '<svg class="graph" viewBox="0 0 320 96" role="img" aria-label="7 dages fugtgraf">'
-          + '<path d="M0 90H320" stroke="#d8dfd3" />'
-          + renderLevelLines()
-          + renderDayMarkers(device.history)
-          + alarmLine
-          + '<path d="' + path + '" fill="none" stroke="#4c7a45" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />'
-          + '</svg>';
-      }
-
-      function renderDevice(device, showZoneInCard) {
-        var statusClass = device.needsAction ? 'alarm' : 'ok';
-        var statusText = device.values.waterAlarm ? 'Vandalarm' : device.live ? 'OK' : 'Offline';
-        var statusMarkup = device.live && !device.values.waterAlarm
-          ? '<span class="live-dot">OK</span>'
-          : '<span class="badge ' + statusClass + '">' + statusText + '</span>';
-        var cardClass = 'sensor-card' + (device.needsAction ? ' alarm' : '') + (!device.live ? ' offline' : '');
-
-          return '<article class="' + cardClass + '">'
-            + '<div class="sensor-header">'
-          + '<div>' + (showZoneInCard ? '<div class="zone-path">' + escapeHtml(device.zonePathText) + '</div>' : '') + '<div class="sensor-name">' + escapeHtml(device.name) + '</div><p class="subtitle">' + escapeHtml(device.driverName) + '</p></div>'
-          + statusMarkup
-          + '</div>'
-          + '<div class="moisture"><strong>' + formatValue(device.values.soilMoisture, '') + '</strong><span>% jordfugt</span><span class="threshold-inline">Grænse ' + formatValue(device.values.alarmThreshold, '%') + '</span></div>'
-          + '<div class="facts">'
-          + '<div class="fact"><strong>' + formatValue(device.values.temperature, ' °C') + '</strong>Temperatur</div>'
-          + '<div class="fact"><strong>' + formatValue(device.values.luminance, ' lx') + '</strong>Luminans</div>'
-          + '<div class="fact"><strong>' + formatValue(device.values.battery, '%') + '</strong>Batteri</div>'
-          + '<div class="fact"><strong>' + formatTime(device.lastReportedAt) + '</strong>Sidst set</div>'
-          + '</div>'
-          + renderGraph(device)
-          + '</article>';
-      }
-
-      function renderDashboard(data) {
-        document.getElementById('total-devices').textContent = data.totals.devices;
-        document.getElementById('total-alarms').textContent = data.totals.alarms;
-        document.getElementById('total-offline').textContent = data.totals.offline;
-        document.getElementById('updated').textContent = 'Opdateret ' + new Date(data.generatedAt).toLocaleString('da-DK');
-
-        var dashboard = document.getElementById('dashboard');
-        if (data.zones.length === 0) {
-          dashboard.innerHTML = '<div class="empty">Ingen jordfugtsensorer fundet.</div>';
-          return;
-        }
-
-        var devices = data.zones.reduce(function (result, zone) { return result.concat(zone.devices); }, []);
-        var waterAlarmDevices = devices.filter(function (device) { return device.values.waterAlarm; });
-        var offlineDevices = devices.filter(function (device) { return !device.values.waterAlarm && !device.live; });
-        var okDevices = devices.filter(function (device) { return !device.needsAction; });
-        var okZones = okDevices.reduce(function (result, device) {
-          var zoneKey = device.zonePathText || 'Ukendt zone';
-          if (!result[zoneKey]) result[zoneKey] = [];
-          result[zoneKey].push(device);
-          return result;
-        }, {});
-        var html = '';
-
-        if (waterAlarmDevices.length > 0) {
-          html += '<section><h2 class="section-title">Vandalarmer</h2><div class="grid">'
-            + waterAlarmDevices.map(function (device) { return renderDevice(device, true); }).join('')
-            + '</div></section>';
-        }
-        if (offlineDevices.length > 0) {
-          html += '<section><h2 class="section-title">Offline sensorer</h2><div class="grid">'
-            + offlineDevices.map(function (device) { return renderDevice(device, true); }).join('')
-            + '</div></section>';
-        }
-        if (okDevices.length > 0) {
-          html += '<section><h2 class="section-title">OK sensorer</h2>';
-          Object.keys(okZones).forEach(function (zonePath) {
-            html += '<h3 class="zone-title">' + escapeHtml(zonePath.split(' / ').slice(-2).join(' / ')) + '</h3><div class="grid">'
-              + okZones[zonePath].map(function (device) { return renderDevice(device, false); }).join('')
-              + '</div>';
-          });
-          html += '</section>';
-        }
-
-        dashboard.innerHTML = html || '<div class="empty">Ingen jordfugtsensorer fundet.</div>';
-      }
-
       function renderWateringMode(state) {
         var card = document.getElementById('watering-mode-card');
         var title = document.getElementById('watering-mode-title');
@@ -583,7 +145,6 @@
         card.classList.toggle('forbidden', state.wateringForbidden === true);
         button.setAttribute('aria-pressed', state.wateringForbidden ? 'true' : 'false');
         title.textContent = state.wateringForbidden ? 'Vanding forbudt' : 'Vanding tilladt';
-        button.textContent = 'Skift';
         button.setAttribute('aria-label', state.wateringForbidden ? 'Slå vanding tilladt til' : 'Slå vanding forbudt til');
       }
 
@@ -609,25 +170,20 @@
       }
 
       function onHomeyReady(Homey) {
-        Homey.api('GET', '/dashboard', null, function (err, result) {
-          if (err) {
-            document.getElementById('dashboard').innerHTML = '<div class="error">Kunne ikke hente dashboard: ' + escapeHtml(err.message || err) + '</div>';
-            Homey.ready();
-            return;
-          }
-
-          enrichDashboardZones(result).then(function (dashboard) {
-            renderDashboard(dashboard);
-            loadWateringMode(Homey);
-            Homey.ready();
-          });
-        });
-
-        document.getElementById('watering-mode-card').addEventListener('click', function () {
-          var button = document.getElementById('watering-mode-toggle');
-          if (button.disabled) return;
+        var card = document.getElementById('watering-mode-card');
+        card.addEventListener('click', function () {
+          if (document.getElementById('watering-mode-toggle').disabled) return;
           toggleWateringMode(Homey);
         });
+        card.addEventListener('keydown', function (event) {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          if (document.getElementById('watering-mode-toggle').disabled) return;
+          toggleWateringMode(Homey);
+        });
+
+        loadWateringMode(Homey);
+        Homey.ready();
       }
     </script>
   </body>

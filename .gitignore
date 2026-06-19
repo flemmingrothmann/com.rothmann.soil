@@ -2,3 +2,4 @@ node_modules/
 .homeybuild/
 .vs/
 env.json
+homey-wingman-app/env.json

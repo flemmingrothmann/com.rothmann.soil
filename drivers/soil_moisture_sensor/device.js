@@ -4,7 +4,6 @@ const { ZigBeeDevice } = require('homey-zigbeedriver');
 const { CLUSTER } = require('zigbee-clusters');
 
 const { STATES, deriveAdaptiveAlarmConfig, reconcileAdaptiveAlarm } = require('../../lib/adaptiveSoilAlarm');
-const { recordSoilMoistureReport } = require('../../lib/soilDashboard');
 
 class SoilMoistureSensorDevice extends ZigBeeDevice {
 
@@ -88,7 +87,6 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
 
     this.log('measure_soil_moisture:', parsedValue, '+ offset', humidityOffset);
     this.setCapabilityValue('measure_soil_moisture', soilMoisture).catch(this.error);
-    recordSoilMoistureReport(this, soilMoisture).catch(this.error);
     this.handleAdaptiveAlarm(soilMoisture, 'humidity report').catch(this.error);
   }
 

@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: homey-wingman-postgres
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: homey_wingman
+      POSTGRES_USER: homey_wingman
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - homey-wingman-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homey_wingman -d homey_wingman"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ingest-service:
+    build: .
+    container_name: homey-wingman-ingest-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8788:8788"
+    environment:
+      PORT: 8788
+      DATABASE_URL: postgres://homey_wingman:${POSTGRES_PASSWORD}@postgres:5432/homey_wingman
+      INGEST_TOKEN: ${INGEST_TOKEN}
+    networks:
+      - default
+      - reverse-proxy
+
+volumes:
+  homey-wingman-postgres-data:
+
+networks:
+  reverse-proxy:
+    external: true

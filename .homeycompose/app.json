@@ -16,10 +16,6 @@
   "category": ["tools"],
   "permissions": ["homey:manager:api"],
   "api": {
-    "dashboard": {
-      "method": "GET",
-      "path": "/dashboard"
-    },
     "wateringMode": {
       "method": "GET",
       "path": "/watering-mode"

@@ -522,15 +522,11 @@
 
         loadWateringMode();
 
-        Homey.api('GET', '/dashboard', {})
-          .then(function (result) {
-            render(result);
-            Homey.ready();
-          })
-          .catch(function (error) {
-            document.getElementById('content').innerHTML = '<div class="error">Kunne ikke hente jordstatus: ' + escapeHtml(error.message || error) + '</div>';
-            Homey.ready({ height: 190 });
-          });
+        document.getElementById('devices').textContent = 'Web-dashboard';
+        document.getElementById('alarms').textContent = 'Wingman DB';
+        document.getElementById('updated').textContent = new Date().toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+        document.getElementById('content').innerHTML = '<div class="empty">Jordstatus vises nu i web-dashboardet. Homey-widgeten styrer kun vandingstilstand.</div>';
+        Homey.ready({ height: 190 });
       }
     </script>
   </body>

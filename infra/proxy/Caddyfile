@@ -1,0 +1,8 @@
+{
+  email flemming.rothmann@gmail.com
+}
+
+home.knalloo.dk {
+  encode zstd gzip
+  reverse_proxy soil-dashboard:8787
+}

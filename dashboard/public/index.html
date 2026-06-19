@@ -4,23 +4,26 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#2e4b2a">
-    <title>Jordstatus</title>
+    <title>Bogfinkevej</title>
     <link rel="manifest" href="/manifest.json?v=20260526-2">
-    <link rel="stylesheet" href="/styles.css?v=20260526-2">
+    <link rel="stylesheet" href="/styles.css?v=20260619-1">
   </head>
   <body>
     <header class="hero">
       <div>
-        <p class="eyebrow">Rothmann Soil</p>
-        <h1>Jordstatus</h1>
-        <p id="updated" class="updated">Henter sensorer...</p>
-        <p id="next-refresh" class="updated refresh-note">Auto-refresh aktiv</p>
+        <p class="eyebrow">Bogfinkevej</p>
+        <h1 id="dashboard-title">Jordstatus</h1>
+        <p class="updated"><span id="updated">Henter...</span><span id="next-refresh" class="refresh-note"></span></p>
         <nav class="tabs" aria-label="Dashboard">
-          <button id="soil-tab" class="tab active" type="button">Jordfugt</button>
+          <button id="home-tab" class="tab active" type="button">Dashboard</button>
+          <button id="soil-tab" class="tab" type="button">Jordfugt</button>
           <button id="watering-tab" class="tab" type="button">Vanding</button>
+          <button id="contact-tab" class="tab" type="button">Åbne døre/vinduer</button>
+          <button id="motion-tab" class="tab" type="button">Bevægelse</button>
+          <button id="lights-tab" class="tab" type="button">Lys</button>
+          <button id="energy-tab" class="tab" type="button">Elpriser</button>
         </nav>
       </div>
-      <button id="refresh" class="refresh" type="button">Opdater</button>
     </header>
 
     <section class="summary" aria-label="Opsummering">
@@ -40,6 +43,6 @@
       <section class="empty">Ingen jordfugtsensorer fundet.</section>
     </template>
 
-    <script src="/app.js?v=20260526-2"></script>
+    <script src="/app.js?v=20260619-1"></script>
   </body>
 </html>

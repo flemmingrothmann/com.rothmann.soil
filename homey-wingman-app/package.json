@@ -1,0 +1,9 @@
+{
+  "name": "com.rothmann.homeywingman",
+  "version": "0.0.1",
+  "private": true,
+  "main": "app.js",
+  "dependencies": {
+    "homey-api": "^3.19.1"
+  }
+}

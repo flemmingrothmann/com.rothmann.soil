@@ -1,0 +1,32 @@
+{
+  "id": "com.rothmann.homeywingman",
+  "version": "0.0.1",
+  "compatibility": ">=12.5.0",
+  "sdk": 3,
+  "platforms": [
+    "local"
+  ],
+  "brandColor": "#334155",
+  "name": {
+    "en": "Homey Wingman",
+    "da": "Homey Wingman"
+  },
+  "description": {
+    "en": "Local event bridge from Homey to a home server ingest endpoint.",
+    "da": "Lokal eventbro fra Homey til et ingest-endpoint paa hjemmeserveren."
+  },
+  "category": [
+    "tools"
+  ],
+  "permissions": [
+    "homey:manager:api"
+  ],
+  "images": {
+    "small": "/assets/images/small.png",
+    "large": "/assets/images/large.png",
+    "xlarge": "/assets/images/xlarge.png"
+  },
+  "author": {
+    "name": "Flemming Rothmann"
+  }
+}

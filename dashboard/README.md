@@ -14,7 +14,7 @@ Lokalt mobilvenligt dashboard til jordfugtsensorer og vandingsventiler. Det prox
 
 ```powershell
 cd dashboard
-$env:HOMEY_URL="http://<homey-ip-eller-url>"
+$env:HOMEY_URL="http://192.168.100.45"
 $env:HOMEY_TOKEN="<homey-api-token>"
 $env:DASHBOARD_PASSWORD="Bogfinkevej11"
 docker compose up --build -d
@@ -24,7 +24,7 @@ docker compose up --build -d
 
 ## Miljøvariabler
 
-- `HOMEY_URL`: Homey base-URL, f.eks. `http://192.168.1.10` eller `https://...homeylocal.com`
+- `HOMEY_URL`: Homey base-URL. Docker-compose bruger `http://192.168.100.45` som default, hvilket ogsaa virker over OpenVPN naar hjemmenettet routes korrekt.
 - `HOMEY_TOKEN`: Homey API token med adgang til app API'et
 - `PORT`: intern port, default `8787`
 - `DASHBOARD_PASSWORD`: adgangskode til browseren, default `Bogfinkevej11`

@@ -2,6 +2,9 @@
   "name": "com.rothmann.soil",
   "version": "0.0.1",
   "main": "app.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "lint": "eslint --ext .js .",
     "test": "node --test tests/*.test.js"
