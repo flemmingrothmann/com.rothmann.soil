@@ -15,8 +15,8 @@ Status: backup etableret paa nuvaerende `hubert` 2026-07-12. Intern SSD-skift/re
 2. Identificer disken sikkert med `lsblk`, UUID og filesystem-status. Udført: USB-disken er `/dev/sdb`.
 3. Formatér kun efter eksplicit bekraeftelse, og mount den fast som backupdisk. Udført: `/dev/sdb1` er `ext4`, label `hubert-backup`, UUID `3040eef3-05f2-467a-bee1-750155dbca44`, mountet paa `/mnt/hubert-backup` via `/etc/fstab` med `nofail`.
 4. Opsaet backup-rutine for Timescale/Postgres og relevant Docker/compose-konfiguration. Udført med `hubert-backup.timer`.
-5. Koer manuel fuld backup. Udført: endeligt rent backup-set `daily/20260712T210547Z`.
-6. Verificer backup med restore-test, foer intern SSD skiftes. Udført for Postgres dump `20260712T210547Z`.
+5. Koer manuel fuld backup. Udført: post-deploy backup-set `daily/20260713T064003Z`.
+6. Verificer backup med restore-test, foer intern SSD skiftes. Udført for Postgres dump `20260713T064003Z`.
 7. Skift intern SSD til ny `1 TB` M.2 SATA og installer ren Ubuntu.
 8. Installer Docker/Compose og basisvaerktoejer paa den nye installation.
 9. Genskab repo/deployment-struktur og secrets fra sikker kilde, ikke fra repo-dokumentation.
@@ -41,26 +41,26 @@ Status: backup etableret paa nuvaerende `hubert` 2026-07-12. Intern SSD-skift/re
 
 ## Verificeret Restore
 
-Seneste Postgres restore-test er koert 2026-07-12 mod dumpet:
+Seneste Postgres restore-test er koert 2026-07-13 mod dumpet:
 
 ```bash
-sudo /usr/local/sbin/hubert-restore-test.sh /mnt/hubert-backup/hubert/daily/20260712T210547Z/postgres/homey_wingman-20260712T210547Z.dump
+sudo /usr/local/sbin/hubert-restore-test.sh /mnt/hubert-backup/hubert/daily/20260713T064003Z/postgres/homey_wingman-20260713T064003Z.dump
 ```
 
 Resultat fra restore-test:
 
 ```text
-database_size|1088 MB
+database_size|1134 MB
 extensions|plpgsql,timescaledb
-ingest_event_count|1216802
-ingest_event_range|2025-11-29 12:10:55.418+00|2026-07-12 21:01:56.776+00
+ingest_event_count|1266847
+ingest_event_range|2025-11-29 12:10:55.418+00|2026-07-13 06:39:50.248+00
 Restore test passed
 ```
 
 Restore-test log er gemt paa backupdisken:
 
 ```text
-/mnt/hubert-backup/hubert/restore-tests/restore-test-20260712T210547Z.success.log
+/mnt/hubert-backup/hubert/restore-tests/restore-test-20260713T064003Z.success.log
 ```
 
 ## Restore Procedure For Postgres
