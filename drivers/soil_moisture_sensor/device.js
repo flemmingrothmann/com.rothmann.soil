@@ -4,6 +4,7 @@ const { ZigBeeDevice } = require('homey-zigbeedriver');
 const { CLUSTER } = require('zigbee-clusters');
 
 const { STATES, deriveAdaptiveAlarmConfig, reconcileAdaptiveAlarm } = require('../../lib/adaptiveSoilAlarm');
+const { migrateDeviceSoilReportIntervals } = require('../../lib/soilReportIntervalMigration');
 
 class SoilMoistureSensorDevice extends ZigBeeDevice {
 
@@ -41,6 +42,7 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
         await this.addCapability('alarm_water').catch(() => null);
       }
 
+      await migrateDeviceSoilReportIntervals(this, this.log.bind(this)).catch(this.error);
       await this.syncSoilWarningThreshold(this.getSoilWarningThreshold());
       await this.restoreAdaptiveAlarmState();
 
@@ -251,9 +253,22 @@ class SoilMoistureSensorDevice extends ZigBeeDevice {
     await this.setCapabilityValue('soil_warning_threshold', threshold).catch(this.error);
   }
 
+  async setSoilWarningThreshold(value) {
+    const threshold = this.normalizeSoilWarningThreshold(value);
+    await this.setSettings({ soil_warning: threshold });
+    await this.syncSoilWarningThreshold(threshold);
+
+    const soilMoisture = this.getCapabilityValue('measure_soil_moisture');
+    if (typeof soilMoisture === 'number') {
+      await this.handleAdaptiveAlarm(soilMoisture, 'soil warning dashboard', false, !this.isDeviceSleepy());
+    }
+
+    return threshold;
+  }
+
   getNormalPollInterval() {
     const pollInterval = Number(this.getSetting('humidity_report_max_interval'));
-    return Number.isFinite(pollInterval) ? Math.max(1, Math.round(pollInterval)) : 300;
+    return Number.isFinite(pollInterval) ? Math.max(1, Math.round(pollInterval)) : 240;
   }
 
   getAdaptiveAlarmConfig() {

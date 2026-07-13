@@ -17,6 +17,15 @@ const GRAPH_AXIS_WIDTH = 34;
 const GRAPH_VALUE_HEIGHT = 126;
 const GRAPH_VALUE_TOP = 6;
 const GRAPH_BOTTOM = 132;
+const SOIL_THRESHOLD_MIN = 0;
+const SOIL_THRESHOLD_MAX = 90;
+const ENERGY_PERIOD_LABELS = {
+  day: 'Dag',
+  '3days': '3 dage',
+  week: 'Uge',
+  month: 'Måned',
+  billing: 'Faktura',
+};
 const VIEWS = ['home', 'soil', 'watering', 'contact', 'motion', 'lights', 'energy'];
 let nextRefreshAt = 0;
 let refreshTimer = null;
@@ -24,6 +33,8 @@ let latestDashboard = null;
 let graphDevices = [];
 let activeView = 'home';
 let activeEnergyPeriod = 'day';
+let activeEnergyPeriodOffset = 0;
+let thresholdDialogDeviceId = null;
 
 function getViewHash(view) {
   return view === 'home' ? '' : `#${view}`;
@@ -84,6 +95,35 @@ function formatUpdatedAt(value) {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+function formatEnergyRange(from, to) {
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (!Number.isFinite(fromDate.getTime()) || !Number.isFinite(toDate.getTime())) return '';
+
+  const dateOptions = {
+    timeZone: 'Europe/Copenhagen',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  };
+  const timeOptions = {
+    timeZone: 'Europe/Copenhagen',
+    hour: '2-digit',
+    minute: '2-digit',
+  };
+  const keyOptions = {
+    timeZone: 'Europe/Copenhagen',
+  };
+  const fromDay = fromDate.toLocaleDateString('en-CA', keyOptions);
+  const toDay = toDate.toLocaleDateString('en-CA', keyOptions);
+  const fromText = `${fromDate.toLocaleDateString('da-DK', dateOptions)} ${fromDate.toLocaleTimeString('da-DK', timeOptions)}`;
+  const toText = fromDay === toDay
+    ? toDate.toLocaleTimeString('da-DK', timeOptions)
+    : `${toDate.toLocaleDateString('da-DK', dateOptions)} ${toDate.toLocaleTimeString('da-DK', timeOptions)}`;
+
+  return `${fromText} - ${toText}`;
 }
 
 function setUpdatedAt(value) {
@@ -190,6 +230,17 @@ function formatMoistureNumber(value) {
   return typeof value === 'number' ? value.toLocaleString('da-DK', { maximumFractionDigits: 1 }) : '-';
 }
 
+function clampSoilThreshold(value) {
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue)) return 30;
+  return Math.max(SOIL_THRESHOLD_MIN, Math.min(SOIL_THRESHOLD_MAX, Math.round(parsedValue)));
+}
+
+function findSoilDevice(apiDeviceId) {
+  if (!latestDashboard) return null;
+  return flattenDevices(latestDashboard).find((device) => device.apiDeviceId === apiDeviceId) || null;
+}
+
 function getGraphY(value, minValue, maxValue) {
   const range = Math.max(1, maxValue - minValue);
   const scaledValue = Math.max(minValue, Math.min(maxValue, value));
@@ -286,6 +337,64 @@ function flattenDevices(data) {
   return data.zones.reduce((result, zone) => result.concat(zone.devices), []);
 }
 
+function getThresholdDisabledReason(device) {
+  if (device.error) return 'Sensoren melder fejl i Homey.';
+  if (device.offline || !device.live) return 'Sensoren er offline.';
+  if (!device.controls?.canSetAlarmThreshold) return 'Sensoren har ingen jordfugtgrænse, der kan ændres her.';
+  return '';
+}
+
+function renderSoilStatusControl(device, state, statusClass) {
+  const disabledReason = getThresholdDisabledReason(device);
+  const title = disabledReason || 'Indstil jordfugtgrænse';
+  const threshold = clampSoilThreshold(device.values.alarmThreshold);
+  const ariaLabel = disabledReason
+    ? `${state}. ${disabledReason}`
+    : `Indstil jordfugtgrænse for ${device.name}. Aktuel grænse ${threshold} %.`;
+  const attributes = [
+    `class="status-button ${statusClass}"`,
+    'type="button"',
+    `data-threshold-device-id="${escapeHtml(device.apiDeviceId)}"`,
+    `title="${escapeHtml(title)}"`,
+    `aria-label="${escapeHtml(ariaLabel)}"`,
+  ];
+
+  if (disabledReason) attributes.push('disabled');
+
+  return `<button ${attributes.join(' ')}>
+    ${escapeHtml(state)}
+  </button>`;
+}
+
+function renderMaintenanceNote(device) {
+  if (!device.needsMaintenance) return '';
+
+  const duration = formatDuration(device.maintenance?.unchangedMinutes);
+  const threshold = device.maintenance?.thresholdHours || 22;
+  return `<p class="maintenance-note">Jordfugten har ikke ændret sig i ${escapeHtml(duration)}. `
+    + `Flyt/omplacer sensoren eller rens spyddene. Reglen udløser efter ca. ${threshold} timer uden ændring.</p>`;
+}
+
+function getIssueCounterValue(device, type) {
+  const value = Number(device.issueCounters?.[type]);
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+}
+
+function renderIssueCounter(device, type, label) {
+  const count = getIssueCounterValue(device, type);
+  const title = `Nulstil ${label.toLowerCase()}-tæller for ${device.name}`;
+  return `<button class="issue-counter ${type}" type="button" data-counter-device-id="${escapeHtml(device.apiDeviceId)}" data-counter-type="${type}" title="${escapeHtml(title)}">
+    <span>${escapeHtml(label)}</span><b>${count.toLocaleString('da-DK')}</b>
+  </button>`;
+}
+
+function renderIssueCounters(device) {
+  return `<div class="issue-counters" aria-label="Akkumulerede sensorhændelser">
+    ${renderIssueCounter(device, 'offline', 'Offline')}
+    ${renderIssueCounter(device, 'maintenance', 'Flyt/rens')}
+  </div>`;
+}
+
 function renderSensor(device, showZoneInCard = true) {
   const graphIndex = graphDevices.push(device) - 1;
   const alarmStats = device.waterAlarmStats || { monthlyActivations: 0, periodDays: 30, zoneTopScorer: false };
@@ -306,6 +415,9 @@ function renderSensor(device, showZoneInCard = true) {
   } else if (device.offline || !device.live) {
     state = 'Offline';
     statusClass = 'offline';
+  } else if (device.needsMaintenance) {
+    state = 'Flyt/rens';
+    statusClass = 'maintenance';
   } else if (device.live) {
     state = 'OK';
     statusClass = 'ok';
@@ -315,11 +427,15 @@ function renderSensor(device, showZoneInCard = true) {
   const topScorerMarkup = alarmStats.zoneTopScorer ? '<span class="topscorer">Topscorer i zonen</span>' : '';
   const alarmStatsMarkup = `<div class="alarm-stats">${alarmCountMarkup}${topScorerMarkup}</div>`;
 
-  statusMarkup = device.live && !device.values.waterAlarm
-    ? '<span class="live-dot">OK</span>'
-    : `<span class="badge ${statusClass}">${state}</span>`;
+  statusMarkup = renderSoilStatusControl(device, state, statusClass);
 
-  const cardClass = `sensor${device.needsAction ? ' action' : ''}${device.offline || !device.live ? ' offline' : ''}${device.error ? ' error' : ''}`;
+  const cardClass = [
+    'sensor',
+    device.values.waterAlarm || device.error ? 'action' : '',
+    device.needsMaintenance ? 'maintenance' : '',
+    device.offline || !device.live ? 'offline' : '',
+    device.error ? 'error' : '',
+  ].filter(Boolean).join(' ');
 
   return `<article class="${cardClass}">
     <div class="topline">
@@ -327,6 +443,7 @@ function renderSensor(device, showZoneInCard = true) {
         ${showZoneInCard ? `<div class="zone">${escapeHtml(formatZonePath(device))}</div>` : ''}
         <div class="name">${escapeHtml(device.name)}</div>
         ${alarmStatsMarkup}
+        ${renderIssueCounters(device)}
       </div>
       ${statusMarkup}
     </div>
@@ -338,6 +455,7 @@ function renderSensor(device, showZoneInCard = true) {
       <div class="fact"><strong>${formatValue(device.values.luminance, ' lx')}</strong>Luminans</div>
       <div class="fact"><strong>${formatTime(device.lastReportedAt)}</strong>Sidst set</div>
     </div>
+    ${renderMaintenanceNote(device)}
     <div class="graph-host" data-graph-index="${graphIndex}"></div>
   </article>`;
 }
@@ -369,6 +487,12 @@ function scheduleRefresh() {
     }
 
     if (Date.now() >= nextRefreshAt) {
+      if (isThresholdDialogOpen()) {
+        nextRefreshAt = Date.now() + (REFRESH_INTERVAL_MS_BY_VIEW[activeView] || 3000);
+        updateRefreshNote();
+        return;
+      }
+
       loadActiveView();
       return;
     }
@@ -418,6 +542,7 @@ function getOverviewMetricClass(card, total) {
   if (!(total.value > 0)) return '';
 
   if (card.id === 'soil' && total.label === 'Alarm') return ' danger';
+  if (card.id === 'soil' && total.label === 'Tjek') return ' muted-alert';
   if (card.id === 'soil' && total.label === 'Fejl') return ' muted-alert';
   if (card.id === 'watering' && total.label === 'Aktive') return ' positive';
   if (card.id === 'contact' && ['Åbne', 'Fejl'].includes(total.label)) return ' danger';
@@ -479,6 +604,18 @@ function renderEnergyPeriodButton(period, label) {
   return `<button class="period-button${active}" type="button" data-energy-period="${period}">${label}</button>`;
 }
 
+function renderEnergyPeriodNavigation(data) {
+  const navigation = data.navigation || {};
+  const range = formatEnergyRange(data.from, data.to);
+  const nextDisabled = navigation.canNavigateNext === false ? ' disabled' : '';
+
+  return `<div class="period-navigation" aria-label="Skift periode">
+    <button class="period-step" type="button" data-energy-period-delta="-1">Forrige</button>
+    <span class="period-range">${escapeHtml(range || data.label || '')}</span>
+    <button class="period-step" type="button" data-energy-period-delta="1"${nextDisabled}>Næste</button>
+  </div>`;
+}
+
 function renderEnergyStat(label, value, suffix = '') {
   return `<article class="energy-stat"><span>${escapeHtml(label)}</span><strong>${value}${escapeHtml(suffix)}</strong></article>`;
 }
@@ -502,18 +639,6 @@ function renderTimingGauge(data) {
     <div class="timing-scale"><span>Billigst muligt</span><span>Gennemsnit</span><span>Dyrest muligt</span></div>
     <p>${escapeHtml(data.note || '')}</p>
   </section>`;
-}
-
-function renderEnergyBucket(bucket, scale) {
-  const kwhPercent = scale.maxKwh > 0 ? Math.min(100, (bucket.kwh / scale.maxKwh) * 100) : 0;
-  const pricePercent = scale.maxPrice > 0 && bucket.priceDkkPerKwh !== null ? Math.min(100, (bucket.priceDkkPerKwh / scale.maxPrice) * 100) : 0;
-  return `<li class="energy-hour">
-    <span class="energy-hour-time">${escapeHtml(bucket.timeLabel)}</span>
-    <span class="energy-bars" title="Blå er forbrug. Rød er elpris."><i style="width:${kwhPercent.toFixed(1)}%"></i><b style="width:${pricePercent.toFixed(1)}%"></b></span>
-    <span>${formatDecimal(bucket.kwh, ' kWh', 2)}</span>
-    <em>${formatDecimal(bucket.priceDkkPerKwh, ' kr./kWh', 2)}</em>
-    <strong>${formatMoney(bucket.costDkk)}</strong>
-  </li>`;
 }
 
 function getEnergyChartTicks(buckets) {
@@ -542,6 +667,7 @@ function renderEnergyChart(data) {
   const barGap = buckets.length > 48 ? 1 : 3;
   const barWidth = Math.max(2, (plotWidth / buckets.length) - barGap);
   const xFor = (index) => left + (index * (plotWidth / buckets.length)) + ((plotWidth / buckets.length) / 2);
+  const boundaryXFor = (index) => left + (index * (plotWidth / buckets.length));
   const kwhY = (value) => top + plotHeight - ((Math.max(0, value) / maxKwh) * plotHeight);
   const priceY = (value) => top + plotHeight - ((Math.max(0, value || 0) / maxPrice) * plotHeight);
   const pricePoints = buckets
@@ -552,9 +678,19 @@ function renderEnergyChart(data) {
   const ticks = getEnergyChartTicks(buckets);
   const dayMarkers = buckets.map((bucket, index) => {
     const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Copenhagen', hour: '2-digit', hourCycle: 'h23' }).format(new Date(bucket.startsAt)));
-    if (hour === 0) return `<path d="M${xFor(index).toFixed(1)} ${top}V${top + plotHeight}" class="day-marker midnight" />`;
-    if (hour === 12) return `<path d="M${xFor(index).toFixed(1)} ${top + (plotHeight / 2)}V${top + plotHeight}" class="day-marker noon" />`;
+    if (hour === 0) return `<path d="M${boundaryXFor(index).toFixed(1)} ${top}V${top + plotHeight}" class="day-marker midnight" />`;
+    if (hour === 12) return `<path d="M${boundaryXFor(index).toFixed(1)} ${top + (plotHeight / 2)}V${top + plotHeight}" class="day-marker noon" />`;
     return '';
+  }).join('');
+  const bars = buckets.map((bucket, index) => {
+    const x = left + (index * (plotWidth / buckets.length)) + (barGap / 2);
+    const y = kwhY(bucket.kwh);
+    const barHeight = top + plotHeight - y;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(1, barHeight).toFixed(1)}" rx="2" />`;
+  }).join('');
+  const timeLabels = ticks.map((index) => {
+    const label = buckets[index].chartLabel || buckets[index].timeLabel;
+    return `<text class="energy-time-label" x="${xFor(index).toFixed(1)}" y="${height - 18}" text-anchor="middle">${escapeHtml(label)}</text>`;
   }).join('');
 
   return `<section class="energy-panel energy-chart-panel">
@@ -572,30 +708,13 @@ function renderEnergyChart(data) {
       <text x="${width - right + 12}" y="${top + 8}">${formatDecimal(maxPrice, '', 1)}</text>
       <text x="${width - right + 12}" y="${top + plotHeight}">0</text>
       ${dayMarkers}
-      ${buckets.map((bucket, index) => {
-        const x = left + (index * (plotWidth / buckets.length)) + (barGap / 2);
-        const y = kwhY(bucket.kwh);
-        const barHeight = top + plotHeight - y;
-        return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(1, barHeight).toFixed(1)}" rx="2" />`;
-      }).join('')}
+      ${bars}
       <path d="M${left} ${averageY.toFixed(1)}H${width - right}" class="average-line" />
       ${pricePoints ? `<polyline points="${pricePoints}" class="price-line" />` : ''}
-      ${ticks.map((index) => `<text class="energy-time-label" x="${xFor(index).toFixed(1)}" y="${height - 18}" text-anchor="middle">${escapeHtml(buckets[index].chartLabel || buckets[index].timeLabel)}</text>`).join('')}
+      ${timeLabels}
     </svg>
     <p class="energy-help">X-akse: tid. Venstre Y-akse: kWh. Højre Y-akse: kr/kWh.</p>
   </section>`;
-}
-
-function renderEnergyHourList(title, patterns) {
-  if (!patterns || patterns.length === 0) return '';
-  return `<section class="energy-panel"><h3>${escapeHtml(title)}</h3><p class="energy-help">Hver linje er samme klokkeslæt summeret for alle dage i perioden.</p><ol class="energy-short-list">
-    ${patterns.map((pattern) => `<li>
-      <span>${escapeHtml(pattern.label)}</span>
-      <b>${formatDecimal(pattern.averageDkkPerKwh, ' kr./kWh', 2)}</b>
-      <em>${formatDecimal(pattern.kwh, ' kWh', 2)} · ${formatMoney(pattern.costDkk)}</em>
-      <small>Billigst ${pattern.cheapestDays}/${pattern.days} dage</small>
-    </li>`).join('')}
-  </ol></section>`;
 }
 
 function renderHourPatternChart(data) {
@@ -626,6 +745,16 @@ function renderHourPatternChart(data) {
     if (pattern.averageDkkPerKwh >= expensiveLimit) return 'expensive-pattern';
     return 'middle-pattern';
   };
+  const patternBars = patterns.map((pattern, index) => {
+    const x = xFor(index) - (barWidth / 2);
+    const y = kwhY(pattern.kwh);
+    const barHeight = top + plotHeight - y;
+    return `<rect class="${barClass(pattern)}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(1, barHeight).toFixed(1)}" rx="3" />`;
+  }).join('');
+  const hourLabels = patterns.map((pattern, index) => {
+    if (Number(pattern.hour) % 4 !== 0) return '';
+    return `<text class="hour-pattern-label" x="${xFor(index).toFixed(1)}" y="${height - 18}" text-anchor="middle">${escapeHtml(pattern.hour)}</text>`;
+  }).join('');
 
   return `<section class="energy-panel energy-chart-panel">
     <div class="energy-chart-heading">
@@ -640,14 +769,9 @@ function renderHourPatternChart(data) {
       <text x="${left - 12}" y="${top + 8}" text-anchor="end">${formatDecimal(maxKwh, '', 1)}</text>
       <text x="${width - right + 12}" y="${top - 12}" class="axis-label">kr/kWh</text>
       <text x="${width - right + 12}" y="${top + 8}">${formatDecimal(maxPrice, '', 1)}</text>
-      ${patterns.map((pattern, index) => {
-        const x = xFor(index) - (barWidth / 2);
-        const y = kwhY(pattern.kwh);
-        const barHeight = top + plotHeight - y;
-        return `<rect class="${barClass(pattern)}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(1, barHeight).toFixed(1)}" rx="3" />`;
-      }).join('')}
+      ${patternBars}
       ${pricePoints ? `<polyline points="${pricePoints}" class="price-line" />` : ''}
-      ${patterns.map((pattern, index) => Number(pattern.hour) % 4 === 0 ? `<text class="hour-pattern-label" x="${xFor(index).toFixed(1)}" y="${height - 18}" text-anchor="middle">${escapeHtml(pattern.hour)}</text>` : '').join('')}
+      ${hourLabels}
     </svg>
   </section>`;
 }
@@ -666,12 +790,11 @@ function renderEnergyDashboard(data) {
   setUpdatedAt(data.generatedAt);
 
   document.getElementById('content').innerHTML = `<section class="energy-detail">
-    <div class="period-tabs">
-      ${renderEnergyPeriodButton('day', 'Dag')}
-      ${renderEnergyPeriodButton('3days', '3 dage')}
-      ${renderEnergyPeriodButton('week', 'Uge')}
-      ${renderEnergyPeriodButton('month', 'Måned')}
-      ${renderEnergyPeriodButton('billing', 'Faktura')}
+    <div class="energy-controls">
+      <div class="period-tabs">
+        ${Object.entries(ENERGY_PERIOD_LABELS).map(([period, label]) => renderEnergyPeriodButton(period, label)).join('')}
+      </div>
+      ${renderEnergyPeriodNavigation(data)}
     </div>
     <section class="energy-hero-card">
       <span class="dashboard-card-kicker">${escapeHtml(data.label)}</span>
@@ -742,6 +865,16 @@ function renderOkSensorsByZone(devices) {
   )).join('')}</section>`;
 }
 
+function renderSoilCounterActions() {
+  return `<section class="counter-actions">
+    <div>
+      <h2 class="section-title">Hændelsestællere</h2>
+      <p>Klik på en sensors tæller for at nulstille den, eller nulstil alle tællere her.</p>
+    </div>
+    <button class="reset-counters" type="button" data-reset-all-counters>Nulstil alle tællere</button>
+  </section>`;
+}
+
 function renderSoilDashboard(data) {
   latestDashboard = data;
   graphDevices = [];
@@ -751,6 +884,7 @@ function renderSoilDashboard(data) {
   setSummaryLabels('Sensorer', 'Kræver handling', 'Offline');
   const devices = flattenDevices(data);
   const waterAlarmDevices = devices.filter((device) => device.values.waterAlarm);
+  const maintenanceDevices = devices.filter((device) => !device.values.waterAlarm && !device.error && !(device.offline || !device.live) && device.needsMaintenance);
   const offlineDevices = devices.filter((device) => !device.values.waterAlarm && !device.error && (device.offline || !device.live));
   const errorDevices = devices.filter((device) => !device.values.waterAlarm && device.error);
   const normalDevices = devices.filter((device) => !device.needsAction);
@@ -766,7 +900,9 @@ function renderSoilDashboard(data) {
     return;
   }
 
-  content.innerHTML = renderSection('Vandalarmer', waterAlarmDevices)
+  content.innerHTML = renderSoilCounterActions()
+    + renderSection('Vandalarmer', waterAlarmDevices)
+    + renderSection('Flyt/rens sensorer', maintenanceDevices)
     + renderSection('Offline sensorer', offlineDevices)
     + renderSection('Sensorfejl i Homey', errorDevices)
     + renderOkSensorsByZone(normalDevices);
@@ -1068,6 +1204,91 @@ async function toggleWateringMode() {
   }
 }
 
+function isThresholdDialogOpen() {
+  const overlay = document.getElementById('threshold-overlay');
+  return overlay ? !overlay.hidden : false;
+}
+
+function setThresholdDialogError(message) {
+  const error = document.getElementById('threshold-error');
+  error.textContent = message || '';
+  error.hidden = !message;
+}
+
+function updateThresholdOutput() {
+  const slider = document.getElementById('threshold-slider');
+  const output = document.getElementById('threshold-output');
+  const value = clampSoilThreshold(slider.value);
+  output.value = `${value} %`;
+  output.textContent = `${value} %`;
+}
+
+function setThresholdSaving(saving) {
+  const slider = document.getElementById('threshold-slider');
+  const save = document.getElementById('threshold-save');
+  const cancel = document.getElementById('threshold-cancel');
+  slider.disabled = saving;
+  save.disabled = saving;
+  cancel.disabled = saving;
+  save.textContent = saving ? 'Gemmer...' : 'Gem grænse';
+}
+
+function openThresholdDialog(apiDeviceId) {
+  const device = findSoilDevice(apiDeviceId);
+  if (!device || !device.controls?.canSetAlarmThreshold) return;
+
+  const overlay = document.getElementById('threshold-overlay');
+  const title = document.getElementById('threshold-title');
+  const subtitle = document.getElementById('threshold-subtitle');
+  const slider = document.getElementById('threshold-slider');
+  const value = clampSoilThreshold(device.values.alarmThreshold);
+
+  thresholdDialogDeviceId = device.apiDeviceId;
+  title.textContent = device.name;
+  subtitle.textContent = `${formatZonePath(device)} · alarm under denne fugtighed`;
+  slider.value = value;
+  setThresholdDialogError('');
+  setThresholdSaving(false);
+  updateThresholdOutput();
+  overlay.hidden = false;
+  document.body.classList.add('modal-open');
+  slider.focus();
+}
+
+function closeThresholdDialog() {
+  const overlay = document.getElementById('threshold-overlay');
+  thresholdDialogDeviceId = null;
+  overlay.hidden = true;
+  document.body.classList.remove('modal-open');
+  setThresholdDialogError('');
+}
+
+async function saveSoilThreshold(event) {
+  event.preventDefault();
+  if (!thresholdDialogDeviceId) return;
+
+  const slider = document.getElementById('threshold-slider');
+  const value = clampSoilThreshold(slider.value);
+  setThresholdDialogError('');
+  setThresholdSaving(true);
+
+  try {
+    const response = await fetch(`/api/soil-sensors/${encodeURIComponent(thresholdDialogDeviceId)}/threshold`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ value }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    closeThresholdDialog();
+    await loadDashboard();
+  } catch (error) {
+    setThresholdDialogError(error.message || String(error));
+    setThresholdSaving(false);
+  }
+}
+
 async function loadOverviewDashboard() {
   setRefreshDisabled(true);
   setActiveView('home');
@@ -1178,16 +1399,29 @@ async function loadLightsDashboard() {
   }
 }
 
-async function loadEnergyDashboard(period = activeEnergyPeriod) {
+function normalizeEnergyPeriodOffset(value) {
+  const offset = Number(value);
+  if (!Number.isFinite(offset)) return 0;
+  return Math.min(0, Math.trunc(offset));
+}
+
+async function loadEnergyDashboard(period = activeEnergyPeriod, offset = activeEnergyPeriodOffset) {
   setRefreshDisabled(true);
   activeEnergyPeriod = period;
+  activeEnergyPeriodOffset = normalizeEnergyPeriodOffset(offset);
   setActiveView('energy');
-  const scrollY = window.scrollY;
+  const { scrollY } = window;
 
   try {
-    const response = await fetch(`/api/energy-dashboard?period=${encodeURIComponent(activeEnergyPeriod)}`, { cache: 'no-store' });
+    const params = new URLSearchParams({
+      period: activeEnergyPeriod,
+      offset: String(activeEnergyPeriodOffset),
+    });
+    const response = await fetch(`/api/energy-dashboard?${params.toString()}`, { cache: 'no-store' });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || response.statusText);
+    activeEnergyPeriod = data.period || activeEnergyPeriod;
+    activeEnergyPeriodOffset = normalizeEnergyPeriodOffset(data.offset);
     renderEnergyDashboard(data);
     if (scrollY > 0) window.scrollTo({ top: scrollY });
     scheduleRefresh();
@@ -1217,6 +1451,63 @@ async function setLightOnOff(deviceId, value, button) {
     document.getElementById('content').insertAdjacentHTML('afterbegin', `<section class="error">Kunne ikke styre lys: ${escapeHtml(error.message || error)}</section>`);
     button.disabled = false;
     button.textContent = value ? 'Tænd' : 'Sluk';
+  }
+}
+
+function getIssueCounterLabel(type) {
+  return type === 'maintenance' ? 'flyt/rens' : 'offline';
+}
+
+function showSoilCounterError(error) {
+  document.getElementById('content').insertAdjacentHTML(
+    'afterbegin',
+    `<section class="error">Kunne ikke nulstille tæller: ${escapeHtml(error.message || error)}</section>`,
+  );
+}
+
+async function resetSoilIssueCounter(deviceId, type, button) {
+  const device = findSoilDevice(deviceId);
+  const label = getIssueCounterLabel(type);
+  const name = device?.name || 'sensoren';
+
+  // eslint-disable-next-line no-alert
+  if (!window.confirm(`Nulstil ${label}-tæller for ${name}?`)) return;
+
+  button.disabled = true;
+
+  try {
+    const response = await fetch(`/api/soil-sensors/${encodeURIComponent(deviceId)}/counters/${encodeURIComponent(type)}/reset`, {
+      method: 'POST',
+      cache: 'no-store',
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    await loadDashboard();
+  } catch (error) {
+    showSoilCounterError(error);
+    button.disabled = false;
+  }
+}
+
+async function resetAllSoilIssueCounters(button) {
+  // eslint-disable-next-line no-alert
+  if (!window.confirm('Nulstil alle offline- og flyt/rens-tællere?')) return;
+
+  button.disabled = true;
+  button.textContent = 'Nulstiller...';
+
+  try {
+    const response = await fetch('/api/soil-sensors/counters/reset', {
+      method: 'POST',
+      cache: 'no-store',
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    await loadDashboard();
+  } catch (error) {
+    showSoilCounterError(error);
+    button.disabled = false;
+    button.textContent = 'Nulstil alle tællere';
   }
 }
 
@@ -1263,9 +1554,34 @@ document.getElementById('motion-tab').addEventListener('click', loadMotionDashbo
 document.getElementById('lights-tab').addEventListener('click', loadLightsDashboard);
 document.getElementById('energy-tab').addEventListener('click', () => loadEnergyDashboard());
 document.getElementById('content').addEventListener('click', (event) => {
+  const counterButton = event.target.closest('[data-counter-device-id][data-counter-type]');
+  if (counterButton) {
+    resetSoilIssueCounter(counterButton.dataset.counterDeviceId, counterButton.dataset.counterType, counterButton);
+    return;
+  }
+
+  const resetAllCountersButton = event.target.closest('[data-reset-all-counters]');
+  if (resetAllCountersButton) {
+    resetAllSoilIssueCounters(resetAllCountersButton);
+    return;
+  }
+
+  const thresholdButton = event.target.closest('[data-threshold-device-id]');
+  if (thresholdButton) {
+    if (!thresholdButton.disabled) openThresholdDialog(thresholdButton.dataset.thresholdDeviceId);
+    return;
+  }
+
   const periodButton = event.target.closest('[data-energy-period]');
   if (periodButton) {
-    loadEnergyDashboard(periodButton.dataset.energyPeriod);
+    loadEnergyDashboard(periodButton.dataset.energyPeriod, 0);
+    return;
+  }
+
+  const periodNavigationButton = event.target.closest('[data-energy-period-delta]');
+  if (periodNavigationButton) {
+    const delta = Number(periodNavigationButton.dataset.energyPeriodDelta);
+    if (Number.isFinite(delta)) loadEnergyDashboard(activeEnergyPeriod, activeEnergyPeriodOffset + delta);
     return;
   }
 
@@ -1293,6 +1609,12 @@ document.getElementById('watering-mode-card').addEventListener('click', () => {
   if (button.disabled) return;
   toggleWateringMode();
 });
+document.getElementById('threshold-slider').addEventListener('input', updateThresholdOutput);
+document.getElementById('threshold-form').addEventListener('submit', saveSoilThreshold);
+document.getElementById('threshold-cancel').addEventListener('click', closeThresholdDialog);
+document.getElementById('threshold-overlay').addEventListener('click', (event) => {
+  if (event.target.id === 'threshold-overlay') closeThresholdDialog();
+});
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     loadActiveView();
@@ -1300,6 +1622,9 @@ document.addEventListener('visibilitychange', () => {
   }
 
   updateRefreshNote();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && isThresholdDialogOpen()) closeThresholdDialog();
 });
 window.addEventListener('hashchange', () => {
   const nextView = getViewFromHash();

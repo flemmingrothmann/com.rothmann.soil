@@ -14,7 +14,7 @@ class ZG303ZDevice extends TuyaSoilSensorDevice {}
 ZG303ZDevice.CONFIG = {
   logName: 'ZG-303Z',
   defaults: {
-    SAMPLING_SECONDS: 1800,
+    SAMPLING_SECONDS: 240,
     CALIBRATION: 0,
     SOIL_WARNING_PERCENT: 30,
   },
@@ -60,10 +60,10 @@ ZG303ZDevice.CONFIG = {
       settingId: 'soil_warning', dp: 110, transform: clampSoilWarning, defaultValue: 30,
     },
     {
-      settingId: 'temperature_sampling', dp: 111, transform: clampSamplingSeconds, defaultValue: 1800,
+      settingId: 'temperature_sampling', dp: 111, transform: clampSamplingSeconds, defaultValue: 240,
     },
     {
-      settingId: 'soil_sampling', dp: 112, transform: clampSamplingSeconds, defaultValue: 1800,
+      settingId: 'soil_sampling', dp: 112, transform: clampSamplingSeconds, defaultValue: 240,
     },
   ],
 };

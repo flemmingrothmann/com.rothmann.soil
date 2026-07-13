@@ -14,6 +14,11 @@
 
 ## Homey Wingman Platform
 - Den lokale Homey/Wingman/TimescaleDB-platform kører på `hubert`.
+- Plan for ekstern backupdisk, intern SSD-skift og ren Ubuntu restore ligger i `docs/hubert-ssd-backup-migration-plan.md`.
+- Ekstern backupdisk paa `hubert` er `/dev/sdb1`, `ext4`, label `hubert-backup`, UUID `3040eef3-05f2-467a-bee1-750155dbca44`, mounted paa `/mnt/hubert-backup`.
+- Daglig backup paa `hubert` koeres af `hubert-backup.timer`; scripts ligger i `/usr/local/sbin/hubert-backup.sh` og `/usr/local/sbin/hubert-restore-test.sh` med kildekopier i `tools/`.
+- Postgres/Timescale backup skal restores fra `pg_dump -Fc` dumpet, ikke fra live data-volume arkiv. Brug Timescale `timescaledb_pre_restore()` og `timescaledb_post_restore()` ved restore.
+- Seneste dokumenterede restore-test ligger i `docs/hubert-ssd-backup-migration-plan.md`; gentag restore-test med `sudo /usr/local/sbin/hubert-restore-test.sh <dump>` foer risikable disk-/OS-aendringer.
 - Homey-appen `com.rothmann.homeywingman` lytter på realtime capability updates via `homey-api` og sender events til ingest-service på `http://192.168.100.66:8788/api/ingest/homey`.
 - Wingman sender metadata snapshots til `http://192.168.100.66:8788/api/sync/homey`.
 - Ingest-service kører i Docker-containeren `homey-wingman-ingest-service`.
@@ -62,3 +67,7 @@
 - Ved Homey-performanceproblemer skal vi først skære ned i antal viste/hentede informationer og måle igen, før vi indfører bred cache.
 - Langsigtet dashboard-arkitektur: Homey skal være data-generator, mens mini-PC/Docker skal ingestere, aggregere og servere dashboarddata. Undgå at lægge tunge historik-/analysejobs i Homey appen.
 - Brug ikke `soil` som navn for den generelle mini-PC/Homey-platform. `soil` er kun jord-/plante-domænet; generel ingest/platform bør bruge et mere abstrakt navn som `homey-wingman`.
+
+## Visualizations
+- Overlap tolereres ikke i visuelle kort/diagrammer: labels, zonebokse, noder og forbindelser skal layoutes, filtreres eller skjules, saa resultatet er laesbart frem for bare teknisk korrekt.
+- Zigbee routekortets manuelle layout maa aldrig nulstilles automatisk ved zone-, device-, navne- eller route-aendringer. Bevar kendte nodepositioner og placer kun nye/manglende noder lokalt, saa timer af manuelt layoutarbejde ikke gaar tabt.

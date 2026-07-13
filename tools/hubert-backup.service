@@ -1,0 +1,11 @@
+[Unit]
+Description=Hubert external disk backup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hubert-backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

@@ -4,9 +4,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  canSetSoilAlarmThreshold,
   countWaterAlarmActivations,
   getActiveSince,
+  getDanishPeriodRange,
   getLatestCapabilityUpdatedAt,
+  getSoilMaintenanceStatus,
   isActiveCapability,
   isContactSensor,
   isLightDevice,
@@ -15,7 +18,10 @@ const {
   enrichWateringValveFlows,
   markZoneWaterAlarmTopscorers,
   normalizeSoilHistory,
+  normalizeSoilWarningThresholdInput,
+  normalizeEnergyPeriodOffset,
   shouldShowActiveDevice,
+  updateSoilIssueCounterState,
 } = require('../dashboard/server');
 
 test('counts water alarm activations within cutoff', () => {
@@ -81,6 +87,174 @@ test('keeps dense soil moisture history above high-frequency sensor volume', () 
 
   assert.equal(normalized.length, 7500);
   assert.equal(normalized[0].t, Date.parse(history[100].t));
+});
+
+test('validates dashboard soil warning threshold range', () => {
+  assert.equal(normalizeSoilWarningThresholdInput('30.4'), 30);
+  assert.equal(normalizeSoilWarningThresholdInput(90), 90);
+  assert.throws(() => normalizeSoilWarningThresholdInput(91), /mellem 0 og 90/);
+  assert.throws(() => normalizeSoilWarningThresholdInput('abc'), /skal være et tal/);
+});
+
+test('normalizes energy period offsets to past or current periods', () => {
+  assert.equal(normalizeEnergyPeriodOffset('-2.9'), -2);
+  assert.equal(normalizeEnergyPeriodOffset(1), 0);
+  assert.equal(normalizeEnergyPeriodOffset('abc'), 0);
+  assert.equal(normalizeEnergyPeriodOffset(-999), -120);
+});
+
+test('builds shifted energy ranges for all period choices', () => {
+  const now = Date.parse('2026-07-03T10:15:00.000Z');
+
+  const currentDay = getDanishPeriodRange('day', now, 0);
+  assert.equal(currentDay.from.toISOString(), '2026-07-02T22:00:00.000Z');
+  assert.equal(currentDay.to.toISOString(), '2026-07-03T10:15:00.000Z');
+
+  const previousDay = getDanishPeriodRange('day', now, -1);
+  assert.equal(previousDay.from.toISOString(), '2026-07-01T22:00:00.000Z');
+  assert.equal(previousDay.to.toISOString(), '2026-07-02T22:00:00.000Z');
+
+  const previousThreeDays = getDanishPeriodRange('3days', now, -1);
+  assert.equal(previousThreeDays.from.toISOString(), '2026-06-27T22:00:00.000Z');
+  assert.equal(previousThreeDays.to.toISOString(), '2026-06-30T22:00:00.000Z');
+
+  const previousWeek = getDanishPeriodRange('week', now, -1);
+  assert.equal(previousWeek.from.toISOString(), '2026-06-19T22:00:00.000Z');
+  assert.equal(previousWeek.to.toISOString(), '2026-06-26T22:00:00.000Z');
+
+  const previousMonth = getDanishPeriodRange('month', now, -1);
+  assert.equal(previousMonth.from.toISOString(), '2026-05-04T22:00:00.000Z');
+  assert.equal(previousMonth.to.toISOString(), '2026-06-03T22:00:00.000Z');
+
+  const previousBillingPeriod = getDanishPeriodRange('billing', now, -1);
+  assert.equal(previousBillingPeriod.from.toISOString(), '2026-05-31T22:00:00.000Z');
+  assert.equal(previousBillingPeriod.to.toISOString(), '2026-06-30T22:00:00.000Z');
+});
+
+test('allows soil threshold control only for live supported sensors', () => {
+  const now = Date.parse('2026-06-01T12:00:00.000Z');
+  const device = {
+    available: true,
+    capabilities: ['measure_soil_moisture', 'soil_warning_threshold'],
+    settings: { soil_warning: 30, soil_sampling: 600 },
+    capabilitiesObj: {
+      measure_soil_moisture: { lastUpdated: new Date(now - 60000).toISOString() },
+    },
+  };
+
+  assert.equal(canSetSoilAlarmThreshold(device, now), true);
+  assert.equal(canSetSoilAlarmThreshold({ ...device, settings: { soil_sampling: 600 } }, now), false);
+  assert.equal(canSetSoilAlarmThreshold({ ...device, available: false }, now), false);
+  assert.equal(canSetSoilAlarmThreshold({
+    ...device,
+    capabilitiesObj: { measure_soil_moisture: { lastUpdated: new Date(now - (7 * 60 * 60 * 1000)).toISOString() } },
+  }, now), false);
+});
+
+test('marks live soil sensors for maintenance when moisture is unchanged for 22 hours', () => {
+  const now = Date.parse('2026-06-01T12:00:00.000Z');
+  const device = {
+    available: true,
+    capabilitiesObj: {
+      measure_soil_moisture: {
+        value: 42,
+        lastUpdated: new Date(now - (23 * 60 * 60 * 1000)).toISOString(),
+      },
+      measure_temperature: { lastUpdated: new Date(now - 60000).toISOString() },
+    },
+  };
+
+  const status = getSoilMaintenanceStatus(device, now, true);
+
+  assert.equal(status.needed, true);
+  assert.equal(status.unchangedMinutes, 1380);
+  assert.equal(status.thresholdHours, 22);
+});
+
+test('does not mark live soil sensors for maintenance before 22 hours', () => {
+  const now = Date.parse('2026-06-01T12:00:00.000Z');
+  const device = {
+    available: true,
+    capabilitiesObj: {
+      measure_soil_moisture: {
+        value: 42,
+        lastUpdated: new Date(now - (21 * 60 * 60 * 1000)).toISOString(),
+      },
+      measure_temperature: { lastUpdated: new Date(now - 60000).toISOString() },
+    },
+  };
+
+  assert.equal(getSoilMaintenanceStatus(device, now, true).needed, false);
+});
+
+test('does not mark offline soil sensors for maintenance even after 22 hours', () => {
+  const now = Date.parse('2026-06-01T12:00:00.000Z');
+  const device = {
+    available: true,
+    capabilitiesObj: {
+      measure_soil_moisture: {
+        value: 42,
+        lastUpdated: new Date(now - (23 * 60 * 60 * 1000)).toISOString(),
+      },
+    },
+  };
+
+  assert.equal(getSoilMaintenanceStatus(device, now, false).needed, false);
+});
+
+test('does not mark soil sensors for maintenance while moisture changes inside window', () => {
+  const now = Date.parse('2026-06-01T12:00:00.000Z');
+  const device = {
+    available: true,
+    capabilitiesObj: {
+      measure_soil_moisture: {
+        value: 42,
+        lastUpdated: new Date(now - (2 * 60 * 60 * 1000)).toISOString(),
+      },
+      measure_temperature: { lastUpdated: new Date(now - 60000).toISOString() },
+    },
+  };
+
+  assert.equal(getSoilMaintenanceStatus(device, now, true).needed, false);
+  assert.equal(getSoilMaintenanceStatus(device, now, false).needed, false);
+});
+
+test('increments soil issue counters only on inactive to active transitions', () => {
+  const now = Date.parse('2026-06-01T12:00:00.000Z');
+  const devices = [{
+    apiDeviceId: 'sensor-1',
+    offline: true,
+    needsMaintenance: false,
+  }];
+
+  const first = updateSoilIssueCounterState({}, devices, now);
+  const second = updateSoilIssueCounterState(first.state, devices, now + 60000);
+  const cleared = updateSoilIssueCounterState(second.state, [{
+    apiDeviceId: 'sensor-1',
+    offline: false,
+    needsMaintenance: false,
+  }], now + 120000);
+  const third = updateSoilIssueCounterState(cleared.state, devices, now + 180000);
+
+  assert.equal(first.state.sensorIssueCounters['sensor-1'].offlineCount, 1);
+  assert.equal(second.state.sensorIssueCounters['sensor-1'].offlineCount, 1);
+  assert.equal(cleared.state.sensorIssueCounters['sensor-1'].offlineActive, false);
+  assert.equal(third.state.sensorIssueCounters['sensor-1'].offlineCount, 2);
+});
+
+test('tracks offline and move-clean counters separately', () => {
+  const now = Date.parse('2026-06-01T12:00:00.000Z');
+  const devices = [{
+    apiDeviceId: 'sensor-1',
+    offline: true,
+    needsMaintenance: true,
+  }];
+
+  const result = updateSoilIssueCounterState({}, devices, now);
+
+  assert.deepEqual(devices[0].issueCounters, { offline: 1, maintenance: 1 });
+  assert.equal(result.state.sensorIssueCounters['sensor-1'].offlineCount, 1);
+  assert.equal(result.state.sensorIssueCounters['sensor-1'].maintenanceCount, 1);
 });
 
 test('finds latest capability update even when some capabilities lack timestamps', () => {
@@ -218,4 +392,33 @@ test('does not treat open valve as active when linked timer is stopped', () => {
   enrichWateringValveFlows(valves, flows, {}, timers);
 
   assert.equal(valves[0].wateringActive, false);
+});
+
+test('uses running closing timer as watering valve source of truth', () => {
+  const valves = [{ id: 'valve-1', on: false }];
+  const flows = {
+    flow1: {
+      id: 'flow1',
+      name: 'Vand bed',
+      enabled: true,
+      actions: [
+        { ownerUri: 'homey:device:valve-1', id: 'homey:device:valve-1:onoff' },
+        { ownerUri: 'homey:app:nl.fellownet.chronograph', id: 'timer_start', args: { name: 'Bed timer' } },
+        { ownerUri: 'homey:app:nl.fellownet.chronograph', id: 'timer_start', args: { name: 'Bed timer lukning' } },
+      ],
+    },
+  };
+  const timers = [{
+    name: 'Bed timer lukning',
+    running: true,
+    duration: 60000,
+    targetDuration: 300000,
+  }];
+
+  enrichWateringValveFlows(valves, flows, {}, timers);
+
+  assert.equal(valves[0].wateringActive, true);
+  assert.equal(valves[0].wateringFlow.timerName, 'Bed timer lukning');
+  assert.deepEqual(valves[0].wateringFlow.timerNames, ['Bed timer', 'Bed timer lukning']);
+  assert.equal(valves[0].wateringFlow.timer.running, true);
 });

@@ -10,9 +10,10 @@ const path = require('path');
 const PORT = Number(process.env.PORT || 8787);
 const HOMEY_URL = (process.env.HOMEY_URL || '').replace(/\/$/, '');
 const HOMEY_TOKEN = process.env.HOMEY_TOKEN || '';
+const INGEST_TOKEN = process.env.INGEST_TOKEN || '';
 const WINGMAN_URL = (process.env.WINGMAN_URL || 'http://homey-wingman-ingest-service:8788').replace(/\/$/, '');
 const APP_ID = process.env.HOMEY_APP_ID || 'com.rothmann.soil';
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'Bogfinkevej11';
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
 const COOKIE_SECRET = process.env.DASHBOARD_COOKIE_SECRET || `${DASHBOARD_PASSWORD}:${APP_ID}`;
 const COOKIE_NAME = 'soil_dashboard_session';
 const COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
@@ -23,6 +24,14 @@ const SOIL_WATER_ALARM_TOPSCORER_DAYS = 30;
 const ENERGY_MAIN_DEVICE_ID = process.env.ENERGY_MAIN_DEVICE_ID || '';
 const ENERGY_MAIN_DEVICE_NAME = process.env.ENERGY_MAIN_DEVICE_NAME || 'Homey Energy Dongle';
 const ENERGY_BILLING_PERIOD_START_DAY = Number(process.env.ENERGY_BILLING_PERIOD_START_DAY || 1);
+const ENERGY_PERIODS = ['day', '3days', 'week', 'month', 'billing'];
+const ENERGY_PERIOD_DAY_SPANS = {
+  day: 1,
+  '3days': 3,
+  week: 7,
+  month: 30,
+};
+
 const WATERING_INSIGHTS_RESOLUTION = 'last14Days';
 const CONTACT_INSIGHTS_RESOLUTION = 'last7Days';
 const CHRONOGRAPH_APP_ID = 'nl.fellownet.chronograph';
@@ -38,6 +47,10 @@ const ALWAYS_ON_LIGHT_DEVICE_IDS = [
 const MIN_SOIL_OFFLINE_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const MAX_SOIL_OFFLINE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SOIL_OFFLINE_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+const SOIL_MAINTENANCE_UNCHANGED_MS = Number(process.env.DASHBOARD_SOIL_MAINTENANCE_UNCHANGED_MS || 22 * 60 * 60 * 1000);
+const SOIL_ISSUE_COUNTER_TYPES = ['offline', 'maintenance'];
+const SOIL_WARNING_THRESHOLD_MIN = 0;
+const SOIL_WARNING_THRESHOLD_MAX = 90;
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const STATE_FILE = process.env.DASHBOARD_STATE_FILE || '/data/state.json';
@@ -50,8 +63,11 @@ const CACHE_TTL_MS = {
   lights: Number(process.env.DASHBOARD_LIGHTS_CACHE_MS || 3000),
   energy: Number(process.env.DASHBOARD_ENERGY_CACHE_MS || 5 * 60 * 1000),
   state: Number(process.env.DASHBOARD_STATE_CACHE_MS || 3000),
+  zigbee: Number(process.env.DASHBOARD_ZIGBEE_CACHE_MS || 30000),
 };
+const ZIGBEE_SAMPLING_INTERVAL_MS = Number(process.env.DASHBOARD_ZIGBEE_SAMPLING_INTERVAL_MS || 10 * 60 * 1000);
 const responseCache = new Map();
+let zigbeeSamplerRunning = false;
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -114,30 +130,197 @@ function clearCache(keys) {
   keys.forEach((key) => responseCache.delete(key));
 }
 
-async function readState() {
-  const variable = await getHomeyApi(`/manager/logic/variable/${WATERING_FORBIDDEN_VARIABLE_ID}`);
-
+async function readStateFile() {
   try {
-    const state = JSON.parse(await fs.readFile(STATE_FILE, 'utf8'));
-    return {
-      wateringForbidden: variable.value === true,
-      updatedAt: state.updatedAt || null,
-    };
+    return JSON.parse(await fs.readFile(STATE_FILE, 'utf8'));
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.error(error.message || error);
     }
 
-    return {
-      wateringForbidden: variable.value === true,
-      updatedAt: null,
-    };
+    return {};
   }
 }
 
-async function writeState(state) {
+async function writeStateFile(state) {
   await fs.mkdir(path.dirname(STATE_FILE), { recursive: true });
   await fs.writeFile(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+}
+
+async function readState() {
+  const [variable, state] = await Promise.all([
+    getHomeyApi(`/manager/logic/variable/${WATERING_FORBIDDEN_VARIABLE_ID}`),
+    readStateFile(),
+  ]);
+
+  return {
+    ...state,
+    wateringForbidden: variable.value === true,
+    updatedAt: state.updatedAt || null,
+  };
+}
+
+async function writeState(state) {
+  const currentState = await readStateFile();
+  await writeStateFile({
+    ...currentState,
+    ...state,
+  });
+}
+
+function normalizeSoilIssueCounterType(type) {
+  if (!SOIL_ISSUE_COUNTER_TYPES.includes(type)) {
+    throw new Error('Ukendt sensortæller.');
+  }
+
+  return type;
+}
+
+function getCounterCountKey(type) {
+  return `${type}Count`;
+}
+
+function getCounterActiveKey(type) {
+  return `${type}Active`;
+}
+
+function getCounterLastTriggeredAtKey(type) {
+  return `${type}LastTriggeredAt`;
+}
+
+function normalizeCounterCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.round(count) : 0;
+}
+
+function normalizeSoilIssueCounterRecord(record = {}) {
+  return SOIL_ISSUE_COUNTER_TYPES.reduce((result, type) => {
+    const countKey = getCounterCountKey(type);
+    const activeKey = getCounterActiveKey(type);
+    const lastTriggeredAtKey = getCounterLastTriggeredAtKey(type);
+
+    result[countKey] = normalizeCounterCount(record[countKey] ?? record[type]);
+    result[activeKey] = record[activeKey] === true;
+    result[lastTriggeredAtKey] = record[lastTriggeredAtKey] || null;
+    return result;
+  }, {});
+}
+
+function normalizeSoilIssueCounters(counters = {}) {
+  return Object.entries(counters || {}).reduce((result, [deviceId, record]) => {
+    if (deviceId) {
+      result[deviceId] = normalizeSoilIssueCounterRecord(record);
+    }
+
+    return result;
+  }, {});
+}
+
+function getDeviceIssueActive(device, type) {
+  if (type === 'offline') return device.offline === true;
+  if (type === 'maintenance') return device.needsMaintenance === true;
+  return false;
+}
+
+function attachSoilIssueCounterValues(device, record) {
+  device.issueCounters = {
+    offline: normalizeCounterCount(record.offlineCount),
+    maintenance: normalizeCounterCount(record.maintenanceCount),
+  };
+}
+
+function updateSoilIssueCounterState(state, devices, now) {
+  const counters = normalizeSoilIssueCounters(state?.sensorIssueCounters);
+  const triggeredAt = new Date(now).toISOString();
+  let changed = false;
+
+  for (const device of devices) {
+    const deviceId = device.apiDeviceId;
+    if (!deviceId) continue;
+
+    const record = counters[deviceId] || normalizeSoilIssueCounterRecord();
+
+    for (const type of SOIL_ISSUE_COUNTER_TYPES) {
+      const active = getDeviceIssueActive(device, type);
+      const countKey = getCounterCountKey(type);
+      const activeKey = getCounterActiveKey(type);
+      const lastTriggeredAtKey = getCounterLastTriggeredAtKey(type);
+
+      if (active && record[activeKey] !== true) {
+        record[countKey] += 1;
+        record[lastTriggeredAtKey] = triggeredAt;
+        changed = true;
+      }
+
+      if (record[activeKey] !== active) {
+        record[activeKey] = active;
+        changed = true;
+      }
+    }
+
+    counters[deviceId] = record;
+    attachSoilIssueCounterValues(device, record);
+  }
+
+  return {
+    changed,
+    state: {
+      ...(state || {}),
+      sensorIssueCounters: counters,
+    },
+  };
+}
+
+async function applySoilIssueCounters(devices, now) {
+  const state = await readStateFile();
+  const result = updateSoilIssueCounterState(state, devices, now);
+
+  if (result.changed) {
+    await writeStateFile(result.state);
+  }
+}
+
+async function resetSoilIssueCounter(deviceId, typeValue) {
+  const type = normalizeSoilIssueCounterType(typeValue);
+  const state = await readStateFile();
+  const counters = normalizeSoilIssueCounters(state.sensorIssueCounters);
+  const record = counters[deviceId] || normalizeSoilIssueCounterRecord();
+
+  record[getCounterCountKey(type)] = 0;
+  counters[deviceId] = record;
+  await writeStateFile({
+    ...state,
+    sensorIssueCounters: counters,
+  });
+  clearCache(['dashboard', 'overview']);
+
+  return {
+    ok: true,
+    deviceId,
+    type,
+    count: 0,
+  };
+}
+
+async function resetAllSoilIssueCounters() {
+  const state = await readStateFile();
+  const counters = normalizeSoilIssueCounters(state.sensorIssueCounters);
+  let devices = 0;
+
+  Object.values(counters).forEach((record) => {
+    devices += 1;
+    SOIL_ISSUE_COUNTER_TYPES.forEach((type) => {
+      record[getCounterCountKey(type)] = 0;
+    });
+  });
+
+  await writeStateFile({
+    ...state,
+    sensorIssueCounters: counters,
+  });
+  clearCache(['dashboard', 'overview']);
+
+  return { ok: true, devices };
 }
 
 async function toggleWateringForbidden() {
@@ -298,6 +481,7 @@ async function getDashboard() {
   const soilDevices = Object.values(apiDevices || {}).filter((device) => hasCapability(device, 'measure_soil_moisture'));
   const devices = await Promise.all(soilDevices.map((device) => toSoilDashboardDevice(device, zoneInfo, now)));
 
+  await applySoilIssueCounters(devices, now);
   devices.sort(compareDashboardDevices);
 
   const zones = devices.reduce((result, device) => {
@@ -327,6 +511,7 @@ async function getDashboard() {
       devices: devices.length,
       alarms: devices.filter((device) => device.needsAction).length,
       waterAlarms: devices.filter((device) => device.values.waterAlarm).length,
+      maintenance: devices.filter((device) => device.needsMaintenance).length,
       offline: devices.filter((device) => device.offline).length,
       errors: devices.filter((device) => device.error).length,
     },
@@ -367,6 +552,32 @@ async function getWingmanApi(pathname) {
   return response.json();
 }
 
+async function writeWingmanApi(method, pathname, body) {
+  if (!WINGMAN_URL) {
+    throw new Error('WINGMAN_URL must be configured');
+  }
+  if (!INGEST_TOKEN) {
+    throw new Error('INGEST_TOKEN must be configured for Wingman writes');
+  }
+
+  const response = await fetch(`${WINGMAN_URL}${pathname}`, {
+    method,
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${INGEST_TOKEN}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(`Wingman returned ${response.status}: ${responseBody || response.statusText}`);
+  }
+
+  return response.json();
+}
+
 async function getHomeyInventory() {
   const snapshot = await getWingmanApi('/api/homey/snapshot');
   return {
@@ -397,8 +608,39 @@ async function putHomeyApi(pathname, body) {
   return response.json();
 }
 
+async function postHomeyAppApi(pathname, body) {
+  if (!HOMEY_URL || !HOMEY_TOKEN) {
+    throw new Error('HOMEY_URL and HOMEY_TOKEN must be configured');
+  }
+
+  const response = await fetch(`${HOMEY_URL}/api/app/${APP_ID}${pathname}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${HOMEY_TOKEN}`,
+      accept: 'application/json',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(`Homey returned ${response.status}: ${responseBody || response.statusText}`);
+  }
+
+  return response.json();
+}
+
 function hasCapability(device, capability) {
   return Array.isArray(device?.capabilities) && device.capabilities.includes(capability);
+}
+
+function hasOwnSetting(device, setting) {
+  return Object.prototype.hasOwnProperty.call(device?.settings || {}, setting);
+}
+
+function hasSoilAlarmThresholdControl(device) {
+  return hasCapability(device, 'soil_warning_threshold') && hasOwnSetting(device, 'soil_warning');
 }
 
 function isWateringValve(device) {
@@ -476,6 +718,37 @@ function getSoilLastReportedAtMs(device, fallbackUpdatedAt, history) {
   return Date.parse(fallbackUpdatedAt);
 }
 
+function getSoilMoistureLastChangedAtMs(device, history) {
+  const capabilityUpdatedAt = Date.parse(device?.capabilitiesObj?.measure_soil_moisture?.lastUpdated);
+  const historyUpdatedAt = Array.isArray(history) && history.length > 0
+    ? history[history.length - 1].t
+    : NaN;
+  const candidates = [capabilityUpdatedAt, historyUpdatedAt].filter(Number.isFinite);
+
+  return candidates.length > 0 ? Math.max(...candidates) : NaN;
+}
+
+function getSoilMaintenanceStatus(device, now, live, history = []) {
+  const rawSoilMoisture = getCapabilityValue(device, 'measure_soil_moisture');
+  const soilMoisture = rawSoilMoisture === null || rawSoilMoisture === undefined || rawSoilMoisture === ''
+    ? NaN
+    : Number(rawSoilMoisture);
+  const lastChangedAtMs = getSoilMoistureLastChangedAtMs(device, history);
+  const unchangedMs = Number.isFinite(lastChangedAtMs) ? Math.max(0, now - lastChangedAtMs) : null;
+  const needed = isAvailable(device)
+    && live === true
+    && Number.isFinite(soilMoisture)
+    && typeof unchangedMs === 'number'
+    && unchangedMs >= SOIL_MAINTENANCE_UNCHANGED_MS;
+
+  return {
+    needed,
+    lastChangedAt: Number.isFinite(lastChangedAtMs) ? new Date(lastChangedAtMs).toISOString() : null,
+    unchangedMinutes: typeof unchangedMs === 'number' ? Math.round(unchangedMs / 60000) : null,
+    thresholdHours: Math.round(SOIL_MAINTENANCE_UNCHANGED_MS / (60 * 60 * 1000)),
+  };
+}
+
 function isSoilDeviceLive(device, now, fallbackUpdatedAt, history) {
   const lastReportedAtMs = getSoilLastReportedAtMs(device, fallbackUpdatedAt, history);
   return isAvailable(device)
@@ -483,16 +756,76 @@ function isSoilDeviceLive(device, now, fallbackUpdatedAt, history) {
     && now - lastReportedAtMs <= getSoilOfflineTimeoutMs(device);
 }
 
+function canSetSoilAlarmThreshold(device, now, live) {
+  const deviceLive = typeof live === 'boolean'
+    ? live
+    : isSoilDeviceLive(device, now, device?.capabilitiesObj?.measure_soil_moisture?.lastUpdated);
+  return isAvailable(device) && deviceLive && hasSoilAlarmThresholdControl(device);
+}
+
+function normalizeSoilWarningThresholdInput(value) {
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue)) {
+    throw new Error('Jordfugtgrænsen skal være et tal.');
+  }
+
+  const threshold = Math.round(parsedValue);
+  if (threshold < SOIL_WARNING_THRESHOLD_MIN || threshold > SOIL_WARNING_THRESHOLD_MAX) {
+    throw new Error(`Jordfugtgrænsen skal være mellem ${SOIL_WARNING_THRESHOLD_MIN} og ${SOIL_WARNING_THRESHOLD_MAX} %.`);
+  }
+
+  return threshold;
+}
+
+async function setSoilAlarmThreshold(deviceId, value) {
+  const threshold = normalizeSoilWarningThresholdInput(value);
+  const { devices: apiDevices } = await getHomeyInventory();
+  const device = apiDevices?.[deviceId];
+  const now = Date.now();
+  const live = device ? isSoilDeviceLive(device, now, device.capabilitiesObj?.measure_soil_moisture?.lastUpdated) : false;
+
+  if (!device || !hasCapability(device, 'measure_soil_moisture')) {
+    throw new Error('Jordfugtsensoren blev ikke fundet.');
+  }
+
+  if (!isAvailable(device)) {
+    throw new Error('Sensoren melder fejl og kan ikke ændres fra dashboardet.');
+  }
+
+  if (!live) {
+    throw new Error('Sensoren er offline og jordfugtgrænsen kan ikke ændres.');
+  }
+
+  if (!hasSoilAlarmThresholdControl(device)) {
+    throw new Error('Sensoren understøtter ikke jordfugtgrænse fra dashboardet.');
+  }
+
+  if (!device.data) {
+    throw new Error('Sensoren kunne ikke matches til Homey-appen.');
+  }
+
+  const result = await postHomeyAppApi('/soil-warning-threshold', {
+    deviceId,
+    driverId: device.driverId,
+    deviceData: device.data,
+    value: threshold,
+  });
+  clearCache(['dashboard', 'overview']);
+  return { ok: true, deviceId, value: result.value ?? threshold };
+}
+
 function compareDashboardDevices(a, b) {
   return a.zonePathText.localeCompare(b.zonePathText, 'da')
     || Number(b.needsAction) - Number(a.needsAction)
     || Number(b.values.waterAlarm) - Number(a.values.waterAlarm)
+    || Number(b.needsMaintenance) - Number(a.needsMaintenance)
     || a.name.localeCompare(b.name, 'da');
 }
 
 function compareZoneDevices(a, b) {
   return Number(b.needsAction) - Number(a.needsAction)
     || Number(b.values.waterAlarm) - Number(a.values.waterAlarm)
+    || Number(b.needsMaintenance) - Number(a.needsMaintenance)
     || a.name.localeCompare(b.name, 'da');
 }
 
@@ -540,6 +873,7 @@ async function toSoilDashboardDevice(device, zoneInfo, now) {
   const driverId = getShortDriverId(device);
   const hasError = !available;
   const offline = available && !live;
+  const maintenance = getSoilMaintenanceStatus(device, now, live, history);
 
   return {
     id: `${driverId || device.driverId || 'device'}:${device.id}`,
@@ -555,7 +889,9 @@ async function toSoilDashboardDevice(device, zoneInfo, now) {
     live,
     offline,
     error: hasError,
-    needsAction: waterAlarm || offline || hasError,
+    needsMaintenance: maintenance.needed,
+    needsAction: waterAlarm || offline || hasError || maintenance.needed,
+    maintenance,
     lastReportedAt: hasLastReport ? new Date(lastReportedAtMs).toISOString() : null,
     offlineAfterMinutes: Math.round(offlineTimeoutMs / 60000),
     values: {
@@ -567,6 +903,9 @@ async function toSoilDashboardDevice(device, zoneInfo, now) {
       airHumidity: getCapabilityValue(device, 'measure_humidity'),
       luminance: getCapabilityValue(device, 'measure_luminance'),
       fertility: getCapabilityValue(device, 'measure_soil_fertility'),
+    },
+    controls: {
+      canSetAlarmThreshold: canSetSoilAlarmThreshold(device, now, live),
     },
     waterAlarmStats: {
       periodDays: SOIL_WATER_ALARM_TOPSCORER_DAYS,
@@ -941,17 +1280,55 @@ function addUtcDays(date, days) {
   return next;
 }
 
-function getDanishPeriodRange(period, now) {
+function normalizeEnergyPeriodOffset(value) {
+  const offset = Number(value);
+  if (!Number.isFinite(offset)) return 0;
+  return Math.max(-120, Math.min(0, Math.trunc(offset)));
+}
+
+function getShiftedMonthDateKey(year, month, day, monthOffset) {
+  const shifted = new Date(Date.UTC(year, month - 1 + monthOffset, day));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function getEnergyPeriodLabel(period, offset) {
+  if (offset === 0) {
+    return {
+      day: 'I dag',
+      '3days': 'Seneste 3 dage',
+      week: 'Seneste 7 dage',
+      month: 'Seneste 30 dage',
+      billing: 'Fakturaperiode',
+    }[period] || 'I dag';
+  }
+
+  return {
+    day: 'Dag',
+    '3days': '3 dage',
+    week: 'Uge',
+    month: '30 dage',
+    billing: 'Fakturaperiode',
+  }[period] || 'Dag';
+}
+
+function getDanishPeriodRange(period, now, offsetValue = 0) {
+  const offset = normalizeEnergyPeriodOffset(offsetValue);
   const nowDate = new Date(now);
   const todayKey = getDanishDateKey(nowDate);
   const todayStart = getDanishDayStartUtc(todayKey);
-  if (period === 'day') return { period, from: todayStart, to: nowDate, label: 'I dag' };
-  if (period === '3days') return { period, from: addUtcDays(todayStart, -2), to: nowDate, label: 'Seneste 3 dage' };
 
-  if (period === 'week') return { period, from: addUtcDays(todayStart, -6), to: nowDate, label: 'Seneste 7 dage' };
-
-  if (period === 'month') {
-    return { period, from: addUtcDays(todayStart, -29), to: nowDate, label: 'Seneste 30 dage' };
+  if (ENERGY_PERIOD_DAY_SPANS[period]) {
+    const spanDays = ENERGY_PERIOD_DAY_SPANS[period];
+    const currentPeriodStart = addUtcDays(todayStart, -(spanDays - 1));
+    const from = addUtcDays(currentPeriodStart, offset * spanDays);
+    const to = offset === 0 ? nowDate : addUtcDays(from, spanDays);
+    return {
+      period,
+      offset,
+      from,
+      to,
+      label: getEnergyPeriodLabel(period, offset),
+    };
   }
 
   const startDay = Math.max(1, Math.min(28, ENERGY_BILLING_PERIOD_START_DAY));
@@ -961,8 +1338,15 @@ function getDanishPeriodRange(period, now) {
   const startMonth = day >= startDay ? month : month - 1;
   const startYear = startMonth >= 1 ? year : year - 1;
   const normalizedMonth = startMonth >= 1 ? startMonth : 12;
-  const billingKey = `${startYear}-${String(normalizedMonth).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
-  return { period: 'billing', from: getDanishDayStartUtc(billingKey), to: nowDate, label: 'Fakturaperiode' };
+  const billingKey = getShiftedMonthDateKey(startYear, normalizedMonth, startDay, offset);
+  const nextBillingKey = getShiftedMonthDateKey(startYear, normalizedMonth, startDay, offset + 1);
+  return {
+    period: 'billing',
+    offset,
+    from: getDanishDayStartUtc(billingKey),
+    to: offset === 0 ? nowDate : getDanishDayStartUtc(nextBillingKey),
+    label: getEnergyPeriodLabel('billing', offset),
+  };
 }
 
 function sumEnergyBuckets(buckets) {
@@ -1060,10 +1444,11 @@ function getHourPatterns(buckets, prices) {
   })).sort((a, b) => Number(a.hour) - Number(b.hour));
 }
 
-async function getEnergyDetailDashboard(periodValue = 'day') {
-  const period = ['day', '3days', 'week', 'month', 'billing'].includes(periodValue) ? periodValue : 'day';
+async function getEnergyDetailDashboard(periodValue = 'day', offsetValue = 0) {
+  const period = ENERGY_PERIODS.includes(periodValue) ? periodValue : 'day';
+  const offset = normalizeEnergyPeriodOffset(offsetValue);
   const now = Date.now();
-  const range = getDanishPeriodRange(period, now);
+  const range = getDanishPeriodRange(period, now, offset);
   const from = encodeURIComponent(range.from.toISOString());
   const to = encodeURIComponent(range.to.toISOString());
   const [usage, pricesResult] = await Promise.all([
@@ -1075,14 +1460,31 @@ async function getEnergyDetailDashboard(periodValue = 'day') {
     const price = getPriceForBucket(prices, bucket);
     const priceDkkPerKwh = Number(price?.total_dkk_per_kwh ?? bucket.effective_dkk_per_kwh);
     const kwh = Number(bucket.kwh) || 0;
-    const costDkk = bucket.cost_dkk !== null && Number.isFinite(Number(bucket.cost_dkk))
-      ? Number(bucket.cost_dkk)
-      : (Number.isFinite(priceDkkPerKwh) ? kwh * priceDkkPerKwh : null);
+    let costDkk = null;
+    if (bucket.cost_dkk !== null && Number.isFinite(Number(bucket.cost_dkk))) {
+      costDkk = Number(bucket.cost_dkk);
+    } else if (Number.isFinite(priceDkkPerKwh)) {
+      costDkk = kwh * priceDkkPerKwh;
+    }
+
+    const bucketStart = new Date(bucket.bucket_start);
+    const timeLabelOptions = {
+      timeZone: 'Europe/Copenhagen',
+      weekday: period === 'day' ? undefined : 'short',
+      day: period === 'day' ? undefined : '2-digit',
+      hour: '2-digit',
+    };
+    const chartLabelOptions = {
+      timeZone: 'Europe/Copenhagen',
+      day: period === 'day' ? undefined : '2-digit',
+      month: period === 'day' ? undefined : '2-digit',
+      hour: '2-digit',
+    };
     return {
       startsAt: bucket.bucket_start,
       endsAt: bucket.bucket_end,
-      timeLabel: new Date(bucket.bucket_start).toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', weekday: period === 'day' ? undefined : 'short', day: period === 'day' ? undefined : '2-digit', hour: '2-digit' }),
-      chartLabel: new Date(bucket.bucket_start).toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', day: period === 'day' ? undefined : '2-digit', month: period === 'day' ? undefined : '2-digit', hour: '2-digit' }),
+      timeLabel: bucketStart.toLocaleString('da-DK', timeLabelOptions),
+      chartLabel: bucketStart.toLocaleString('da-DK', chartLabelOptions),
       kwh,
       costDkk,
       priceDkkPerKwh: Number.isFinite(priceDkkPerKwh) ? priceDkkPerKwh : null,
@@ -1106,9 +1508,16 @@ async function getEnergyDetailDashboard(periodValue = 'day') {
     generatedAt: new Date(now).toISOString(),
     source: 'wingman-db',
     period: range.period,
+    offset: range.offset,
     label: range.label,
     from: range.from.toISOString(),
     to: range.to.toISOString(),
+    navigation: {
+      canNavigatePrevious: true,
+      canNavigateNext: range.offset < 0,
+      previousOffset: range.offset - 1,
+      nextOffset: Math.min(0, range.offset + 1),
+    },
     note: 'Nettoforbrug fra hovedmåleren. Solceller og elbil kan påvirke billedet.',
     totals: {
       kwh: totals.kwh,
@@ -1214,9 +1623,17 @@ async function getOverviewDashboard() {
   const soilAlarms = soilDevices.filter((device) => getCapabilityValue(device, 'alarm_water') === true);
   const soilOffline = soilDevices.filter((device) => isAvailable(device) && !isSoilDeviceLive(device, now, device.capabilitiesObj?.measure_soil_moisture?.lastUpdated));
   const soilErrors = soilDevices.filter((device) => !isAvailable(device));
+  const soilMaintenance = soilDevices.filter((device) => {
+    const live = isSoilDeviceLive(device, now, device.capabilitiesObj?.measure_soil_moisture?.lastUpdated);
+    return !soilAlarms.includes(device)
+      && !soilOffline.includes(device)
+      && !soilErrors.includes(device)
+      && getSoilMaintenanceStatus(device, now, live).needed;
+  });
   const soilIssues = soilAlarms
+    .concat(soilMaintenance.filter((device) => !soilAlarms.includes(device)))
     .concat(soilOffline.filter((device) => !soilAlarms.includes(device)))
-    .concat(soilErrors.filter((device) => !soilAlarms.includes(device) && !soilOffline.includes(device)));
+    .concat(soilErrors.filter((device) => !soilAlarms.includes(device) && !soilMaintenance.includes(device) && !soilOffline.includes(device)));
 
   const currentStatusItems = (items, detail, emptyText) => {
     if (items.length === 0) {
@@ -1231,9 +1648,10 @@ async function getOverviewDashboard() {
     getDashboardCard('soil', 'Jordstatus', 'Jordfugt og vandalarmer', 'soil', [
       { label: 'Sensorer', value: soilDevices.length },
       { label: 'Alarm', value: soilAlarms.length },
+      { label: 'Tjek', value: soilMaintenance.length },
       { label: 'Fejl', value: soilErrors.length },
       { label: 'Offline', value: soilOffline.length },
-    ], currentStatusItems(soilIssues, 'Kræver kig', 'Ingen jordalarmer, offline eller fejl')),
+    ], currentStatusItems(soilIssues, 'Kræver kig', 'Ingen jordalarmer, sensor-tjek, offline eller fejl')),
     getDashboardCard('watering', 'Vanding', 'Ventiler og vanding', 'watering', [
       { label: 'Ventiler', value: valves.length },
       { label: 'Aktive', value: activeValves.length },
@@ -1381,6 +1799,16 @@ function getPrimaryTimerName(timerNames) {
   return timerNames.find((name) => !/lukning/i.test(name)) || timerNames[0] || null;
 }
 
+function getFlowTimer(timerNames, timersByName) {
+  const runningTimerName = timerNames.find((name) => timersByName[name]?.running === true);
+  const timerName = runningTimerName || getPrimaryTimerName(timerNames);
+
+  return {
+    timerName,
+    timer: summarizeTimer(timersByName[timerName]),
+  };
+}
+
 function summarizeTimer(timer) {
   if (!timer) return null;
 
@@ -1408,15 +1836,15 @@ function getWateringFlowInfos(flows, type, valveIds, timersByName) {
     if (flowDeviceIds.length === 0) return result;
 
     const timerNames = getFlowTimerNames(cards);
-    const primaryTimerName = getPrimaryTimerName(timerNames);
-    const timer = summarizeTimer(timersByName[primaryTimerName]);
+    const { timerName, timer } = getFlowTimer(timerNames, timersByName);
 
     flowDeviceIds.forEach((deviceId) => {
       result[deviceId] = {
         type,
         id: flow.id || null,
         name: flow.name || 'Ukendt flow',
-        timerName: primaryTimerName,
+        timerName,
+        timerNames,
         timer,
       };
     });
@@ -1615,6 +2043,249 @@ function getZoneInfo(zones) {
   }, {});
 }
 
+function normalizeIeee(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function shortAddress(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `0x${number.toString(16).padStart(4, '0')}` : String(value || '');
+}
+
+function shortIeee(value) {
+  const ieee = normalizeIeee(value);
+  return ieee ? ieee.split(':').slice(-4).join(':') : null;
+}
+
+function getZigbeeNodeAddress(node) {
+  return node?.networkAddress ?? node?.nwkAddr ?? node?.address ?? null;
+}
+
+function getZigbeeNodeType(node, device) {
+  const type = String(node?.deviceType || node?.type || device?.settings?.zb_device_type || '').toLowerCase();
+  if (type.includes('router')) return 'router';
+  if (type.includes('end')) return 'enddevice';
+  if (type.includes('coordinator')) return 'coordinator';
+  return device?.settings?.zb_receive_when_idle === '✓' ? 'router' : 'enddevice';
+}
+
+function getRouteNodes(rawNodes) {
+  return Array.isArray(rawNodes) ? rawNodes : Object.values(rawNodes || {});
+}
+
+function getChildCounts(links) {
+  return links.reduce((result, link) => {
+    result[link.target] = (result[link.target] || 0) + 1;
+    return result;
+  }, {});
+}
+
+function addUnknownZigbeeNode(nodesById, id) {
+  if (nodesById.has(id) || id === 'homey') return;
+  nodesById.set(id, {
+    id,
+    address: Number(id),
+    addressLabel: shortAddress(id),
+    label: `Ukendt ${shortAddress(id)}`,
+    category: 'unknown',
+    type: 'unknown',
+    zone: 'Ukendt zone',
+    zoneShort: 'Ukendt zone',
+    available: null,
+    manufacturer: null,
+    product: null,
+    shortIeee: null,
+    lastSeen: null,
+    stats: null,
+  });
+}
+
+function createZigbeeRouteMapModel({ zigbeeState, devices, zones }) {
+  const controllerState = zigbeeState.controllerState || {};
+  const zoneInfo = getZoneInfo(zones);
+  const devicesByIeee = Object.values(devices || {}).reduce((result, device) => {
+    const ieee = normalizeIeee(device?.settings?.zb_ieee_address);
+    if (ieee) result[ieee] = device;
+    return result;
+  }, {});
+  const nodesById = new Map();
+
+  nodesById.set('homey', {
+    id: 'homey',
+    address: 0,
+    addressLabel: 'Homey',
+    label: 'Homey Zigbee',
+    category: 'coordinator',
+    type: 'coordinator',
+    zone: 'Controller',
+    zoneShort: 'Controller',
+    available: true,
+    manufacturer: 'Athom',
+    product: `Channel ${controllerState.channel || '-'}`,
+    shortIeee: shortIeee(controllerState.IEEEAddress),
+    lastSeen: null,
+    stats: null,
+  });
+
+  getRouteNodes(zigbeeState.nodes).forEach((node, index) => {
+    const address = getZigbeeNodeAddress(node);
+    if (!Number.isFinite(Number(address)) || Number(address) === 0) return;
+
+    const ieee = normalizeIeee(node.ieeeAddress || node.ieeeAddr);
+    const device = devicesByIeee[ieee];
+    const zone = zoneInfo[device?.zone] || null;
+    const type = getZigbeeNodeType(node, device);
+    nodesById.set(String(address), {
+      id: String(address),
+      nodeId: index,
+      address: Number(address),
+      addressLabel: shortAddress(address),
+      label: String(device?.name || node.name || node.modelId || shortAddress(address)).trim(),
+      category: type === 'coordinator' ? 'coordinator' : type,
+      type,
+      zone: zone?.pathText || 'Ukendt zone',
+      zoneShort: zone?.path?.slice(-2).join(' / ') || 'Ukendt zone',
+      available: device ? device.available !== false : null,
+      manufacturer: device?.settings?.zb_manufacturer_name || node.manufacturerName || null,
+      product: device?.settings?.zb_product_id || node.modelId || null,
+      shortIeee: shortIeee(ieee),
+      lastSeen: Number.isFinite(Number(node.lastSeen)) ? new Date(Number(node.lastSeen)).toISOString() : null,
+      stats: node.stats ? {
+        tx: Number(node.stats.tx) || 0,
+        txSuccess: Number(node.stats.txSuccess) || 0,
+        txError: Number(node.stats.txError) || 0,
+        rx: Number(node.stats.rx) || 0,
+      } : null,
+    });
+  });
+
+  const routes = controllerState.routes || {};
+  const links = Object.entries(routes).map(([source, route]) => {
+    addUnknownZigbeeNode(nodesById, String(source));
+    const routeParts = (Array.isArray(route) ? route : []).map(String);
+    routeParts.forEach((routeNode) => addUnknownZigbeeNode(nodesById, routeNode));
+    const target = routeParts[routeParts.length - 1] || 'homey';
+    addUnknownZigbeeNode(nodesById, target);
+    return {
+      id: `parent:${source}`,
+      source: String(source),
+      target,
+      route: routeParts,
+      depth: routeParts.length + 1,
+    };
+  });
+
+  const childCounts = getChildCounts(links);
+  const nodes = [...nodesById.values()].map((node) => {
+    const link = links.find((item) => item.source === node.id);
+    return {
+      ...node,
+      parentId: link?.target || null,
+      routeDepth: link?.depth || null,
+      childCount: childCounts[node.id] || 0,
+    };
+  });
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  links.forEach((link) => {
+    link.sourceCategory = nodeById.get(link.source)?.category || 'unknown';
+    link.routeLabels = link.route.map((address) => nodeById.get(address)?.label || shortAddress(address));
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    source: 'Homey local /api/manager/zigbee/state controllerState.routes',
+    controller: {
+      channel: controllerState.channel || null,
+      panId: controllerState.panId || null,
+      extendedPanId: controllerState.extendedPanId || null,
+      softwareVersion: controllerState.softwareVersion || null,
+      shortIeee: shortIeee(controllerState.IEEEAddress),
+    },
+    totals: {
+      nodes: nodes.length,
+      devices: nodes.filter((node) => !['coordinator', 'unknown'].includes(node.category)).length,
+      routers: nodes.filter((node) => node.category === 'router').length,
+      enddevices: nodes.filter((node) => node.category === 'enddevice').length,
+      unknown: nodes.filter((node) => node.category === 'unknown').length,
+      links: links.length,
+      routeEntries: Object.keys(routes).length,
+      unavailable: nodes.filter((node) => node.available === false).length,
+    },
+    nodes,
+    links,
+  };
+}
+
+async function getZigbeeRouteMap() {
+  const [zigbeeState, inventory] = await Promise.all([
+    getHomeyApi('/manager/zigbee/state'),
+    getHomeyInventory(),
+  ]);
+  const current = createZigbeeRouteMapModel({
+    zigbeeState,
+    devices: inventory.devices,
+    zones: inventory.zones,
+  });
+
+  try {
+    await writeWingmanApi('POST', '/api/zigbee/routes/snapshot', current);
+  } catch (error) {
+    console.warn(`Could not persist Zigbee route snapshot: ${error.message || error}`);
+  }
+
+  let history = null;
+  try {
+    history = await getWingmanApi('/api/zigbee/routes/history?days=14');
+  } catch (error) {
+    console.warn(`Could not fetch Zigbee route history: ${error.message || error}`);
+  }
+
+  return {
+    ...current,
+    history: history || {
+      generatedAt: new Date().toISOString(),
+      days: 14,
+      nodes: [],
+      edges: [],
+      layout: [],
+    },
+  };
+}
+
+async function sampleZigbeeRouteMap() {
+  if (zigbeeSamplerRunning) return;
+  zigbeeSamplerRunning = true;
+  try {
+    const value = await getZigbeeRouteMap();
+    responseCache.set('zigbee', {
+      value,
+      expiresAt: Date.now() + CACHE_TTL_MS.zigbee,
+    });
+    console.log(`Sampled Zigbee route map with ${value.totals.routeEntries} route entries`);
+  } catch (error) {
+    console.warn(`Could not sample Zigbee route map: ${error.message || error}`);
+  } finally {
+    zigbeeSamplerRunning = false;
+  }
+}
+
+function startZigbeeSampler() {
+  if (!ZIGBEE_SAMPLING_INTERVAL_MS) return;
+  setTimeout(sampleZigbeeRouteMap, 15000);
+  setInterval(sampleZigbeeRouteMap, ZIGBEE_SAMPLING_INTERVAL_MS);
+  console.log(`Zigbee route sampler interval ${Math.round(ZIGBEE_SAMPLING_INTERVAL_MS / 1000)}s`);
+}
+
+async function getZigbeeLayout(response) {
+  sendJson(response, 200, await getWingmanApi('/api/zigbee/layout'));
+}
+
+async function putZigbeeLayout(request, response) {
+  const body = await readRequestBody(request);
+  const payload = body ? JSON.parse(body) : {};
+  sendJson(response, 202, await writeWingmanApi('PUT', '/api/zigbee/layout', payload));
+}
+
 async function serveStatic(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const pathname = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname);
@@ -1663,8 +2334,29 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'GET' && request.url.startsWith('/zigbee')) {
+      request.url = '/zigbee.html';
+      await serveStatic(request, response);
+      return;
+    }
+
     if (request.method === 'GET' && request.url.startsWith('/api/dashboard')) {
       sendJson(response, 200, await getCachedValue('dashboard', CACHE_TTL_MS.dashboard, getDashboard));
+      return;
+    }
+
+    if (request.method === 'GET' && request.url.startsWith('/api/zigbee-map')) {
+      sendJson(response, 200, await getCachedValue('zigbee', CACHE_TTL_MS.zigbee, getZigbeeRouteMap));
+      return;
+    }
+
+    if (request.method === 'GET' && request.url.startsWith('/api/zigbee-layout')) {
+      await getZigbeeLayout(response);
+      return;
+    }
+
+    if (request.method === 'PUT' && request.url.startsWith('/api/zigbee-layout')) {
+      await putZigbeeLayout(request, response);
       return;
     }
 
@@ -1695,8 +2387,10 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === 'GET' && request.url.startsWith('/api/energy-dashboard')) {
       const url = new URL(request.url, `http://${request.headers.host}`);
-      const period = url.searchParams.get('period') || 'day';
-      sendJson(response, 200, await getCachedValue(`energy:${period}`, CACHE_TTL_MS.energy, () => getEnergyDetailDashboard(period)));
+      const periodValue = url.searchParams.get('period') || 'day';
+      const period = ENERGY_PERIODS.includes(periodValue) ? periodValue : 'day';
+      const offset = normalizeEnergyPeriodOffset(url.searchParams.get('offset') || 0);
+      sendJson(response, 200, await getCachedValue(`energy:${period}:${offset}`, CACHE_TTL_MS.energy, () => getEnergyDetailDashboard(period, offset)));
       return;
     }
 
@@ -1712,6 +2406,30 @@ const server = http.createServer(async (request, response) => {
       const result = await setLightOnOff(decodeURIComponent(match[1]), body.value);
       clearCache(['overview', 'lights']);
       sendJson(response, 200, result);
+      return;
+    }
+
+    if (request.method === 'POST' && request.url.startsWith('/api/soil-sensors/')) {
+      const url = new URL(request.url, `http://${request.headers.host}`);
+      if (url.pathname === '/api/soil-sensors/counters/reset') {
+        sendJson(response, 200, await resetAllSoilIssueCounters());
+        return;
+      }
+
+      const counterMatch = url.pathname.match(/^\/api\/soil-sensors\/([^/]+)\/counters\/([^/]+)\/reset$/);
+      if (counterMatch) {
+        sendJson(response, 200, await resetSoilIssueCounter(decodeURIComponent(counterMatch[1]), decodeURIComponent(counterMatch[2])));
+        return;
+      }
+
+      const match = url.pathname.match(/^\/api\/soil-sensors\/([^/]+)\/threshold$/);
+      if (!match) {
+        sendError(response, 404, 'Not found');
+        return;
+      }
+
+      const body = JSON.parse(await readRequestBody(request) || '{}');
+      sendJson(response, 200, await setSoilAlarmThreshold(decodeURIComponent(match[1]), body.value));
       return;
     }
 
@@ -1738,22 +2456,33 @@ const server = http.createServer(async (request, response) => {
 });
 
 if (require.main === module) {
+  if (!DASHBOARD_PASSWORD) {
+    throw new Error('DASHBOARD_PASSWORD must be configured');
+  }
+
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Soil dashboard listening on http://0.0.0.0:${PORT}`);
+    startZigbeeSampler();
   });
 }
 
 module.exports = {
   getActiveSince,
   countWaterAlarmActivations,
+  canSetSoilAlarmThreshold,
   enrichWateringValveFlows,
+  getDanishPeriodRange,
   getLatestCapabilityUpdatedAt,
+  getSoilMaintenanceStatus,
   isActiveCapability,
   isLightDevice,
   isMotionSensor,
   isWateringValve,
   markZoneWaterAlarmTopscorers,
   normalizeSoilHistory,
+  normalizeSoilWarningThresholdInput,
+  normalizeEnergyPeriodOffset,
   isContactSensor,
   shouldShowActiveDevice,
+  updateSoilIssueCounterState,
 };

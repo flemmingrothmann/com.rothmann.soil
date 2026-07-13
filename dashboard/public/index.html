@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#2e4b2a">
     <title>Bogfinkevej</title>
     <link rel="manifest" href="/manifest.json?v=20260526-2">
-    <link rel="stylesheet" href="/styles.css?v=20260619-1">
+    <link rel="stylesheet" href="/styles.css?v=20260707-1">
   </head>
   <body>
     <header class="hero">
@@ -22,6 +22,7 @@
           <button id="motion-tab" class="tab" type="button">Bevægelse</button>
           <button id="lights-tab" class="tab" type="button">Lys</button>
           <button id="energy-tab" class="tab" type="button">Elpriser</button>
+          <a class="tab tab-link" href="/zigbee">Zigbee</a>
         </nav>
       </div>
     </header>
@@ -39,10 +40,30 @@
 
     <main id="content" class="content"></main>
 
+    <div id="threshold-overlay" class="threshold-overlay" hidden>
+      <form id="threshold-form" class="threshold-panel" role="dialog" aria-modal="true" aria-labelledby="threshold-heading">
+        <p class="threshold-kicker">Jordfugtgrænse</p>
+        <h2 id="threshold-heading">Indstil vandalarm</h2>
+        <strong id="threshold-title" class="threshold-device">-</strong>
+        <p id="threshold-subtitle" class="threshold-subtitle">Alarm under denne fugtighed</p>
+        <div class="threshold-value-row">
+          <span>0 %</span>
+          <output id="threshold-output" for="threshold-slider">30 %</output>
+          <span>90 %</span>
+        </div>
+        <input id="threshold-slider" class="threshold-slider" type="range" min="0" max="90" step="1" value="30">
+        <p id="threshold-error" class="threshold-error" hidden></p>
+        <div class="threshold-actions">
+          <button id="threshold-cancel" class="threshold-secondary" type="button">Annuller</button>
+          <button id="threshold-save" class="threshold-primary" type="submit">Gem grænse</button>
+        </div>
+      </form>
+    </div>
+
     <template id="empty-template">
       <section class="empty">Ingen jordfugtsensorer fundet.</section>
     </template>
 
-    <script src="/app.js?v=20260619-1"></script>
+    <script src="/app.js?v=20260707-1"></script>
   </body>
 </html>

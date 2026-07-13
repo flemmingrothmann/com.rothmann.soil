@@ -27,6 +27,10 @@
     "configureWateringMode": {
       "method": "POST",
       "path": "/watering-mode/config"
+    },
+    "setSoilWarningThreshold": {
+      "method": "POST",
+      "path": "/soil-warning-threshold"
     }
   },
   "images": {

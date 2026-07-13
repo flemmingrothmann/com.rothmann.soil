@@ -15,7 +15,7 @@ class ZS304ZDevice extends TuyaSoilSensorDevice {}
 ZS304ZDevice.CONFIG = {
   logName: 'ZS-304Z',
   defaults: {
-    SAMPLING_SECONDS: 600,
+    SAMPLING_SECONDS: 240,
     CALIBRATION: 0,
     ILLUMINANCE_CALIBRATION: 0,
     SOIL_WARNING_PERCENT: 30,
@@ -47,7 +47,7 @@ ZS304ZDevice.CONFIG = {
   },
   settingWriters: [
     {
-      settingId: 'soil_sampling', dp: 103, transform: clampSamplingSeconds, defaultValue: 600,
+      settingId: 'soil_sampling', dp: 103, transform: clampSamplingSeconds, defaultValue: 240,
     },
     {
       settingId: 'soil_calibration', dp: 104, transform: clampSoilCalibration, defaultValue: 0,

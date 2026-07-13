@@ -16,7 +16,8 @@ Lokalt mobilvenligt dashboard til jordfugtsensorer og vandingsventiler. Det prox
 cd dashboard
 $env:HOMEY_URL="http://192.168.100.45"
 $env:HOMEY_TOKEN="<homey-api-token>"
-$env:DASHBOARD_PASSWORD="Bogfinkevej11"
+$env:INGEST_TOKEN="<wingman-ingest-token>"
+$env:DASHBOARD_PASSWORD="<dashboard-password>"
 docker compose up --build -d
 ```
 
@@ -26,8 +27,9 @@ docker compose up --build -d
 
 - `HOMEY_URL`: Homey base-URL. Docker-compose bruger `http://192.168.100.45` som default, hvilket ogsaa virker over OpenVPN naar hjemmenettet routes korrekt.
 - `HOMEY_TOKEN`: Homey API token med adgang til app API'et
+- `INGEST_TOKEN`: samme token som ingest-service bruger; kraeves for Zigbee layout-gemning og andre Wingman writes
 - `PORT`: intern port, default `8787`
-- `DASHBOARD_PASSWORD`: adgangskode til browseren, default `Bogfinkevej11`
+- `DASHBOARD_PASSWORD`: adgangskode til browseren; skal saettes uden for repoet
 - `DASHBOARD_COOKIE_SECRET`: valgfri hemmelighed til signering af login-cookie
 - `WATERING_FORBIDDEN_VARIABLE_ID`: Homey Logic boolean-variable for `Vanding Forbudt`
 

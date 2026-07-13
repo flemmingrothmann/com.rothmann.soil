@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bogfinkevej Zigbee routekort</title>
+    <script src="https://unpkg.com/cytoscape@3.34.0/dist/cytoscape.min.js"></script>
+    <style>
+      * { box-sizing: border-box; }
+      body { background: #0f172a; color: #101828; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 18px; }
+      .shell { margin: 0 auto; max-width: 1700px; }
+      .hero { color: #fff; display: flex; gap: 18px; justify-content: space-between; margin-bottom: 14px; }
+      h1 { font-size: clamp(34px, 5vw, 68px); letter-spacing: -0.07em; line-height: 0.92; margin: 0; }
+      .hero p { color: rgba(255,255,255,0.72); margin: 8px 0 0; max-width: 820px; }
+      .dashboard-link { align-self: flex-start; background: #fff; border-radius: 999px; color: #172016; font-weight: 900; padding: 10px 14px; text-decoration: none; white-space: nowrap; }
+      .stats { display: grid; gap: 10px; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-bottom: 14px; }
+      .stat, .panel { background: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.28); border-radius: 22px; box-shadow: 0 24px 70px rgba(0,0,0,0.24); }
+      .stat { padding: 12px; text-align: center; }
+      .stat strong { display: block; font-size: 28px; }
+      .stat span { color: #667085; display: block; font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+      .layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 390px; }
+      .map-panel { min-height: 800px; overflow: hidden; position: relative; }
+      #cy { height: min(80vh, 1050px); min-height: 800px; width: 100%; }
+      .toolbar { display: flex; gap: 8px; left: 14px; position: absolute; top: 14px; z-index: 3; }
+      .toolbar button { background: #111827; border: 0; border-radius: 999px; color: #fff; cursor: pointer; font-weight: 900; padding: 8px 12px; transform: translateY(0); transition: background 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease, transform 0.16s ease; }
+      .toolbar button:disabled { cursor: wait; opacity: 0.82; }
+      .toolbar button.feedback-active { box-shadow: 0 0 0 4px rgba(245,158,11,0.26); transform: translateY(1px) scale(0.98); }
+      .toolbar button.feedback-busy { background: #475467; box-shadow: 0 0 0 4px rgba(71,84,103,0.22); }
+      .toolbar button.feedback-success { background: #16a34a; box-shadow: 0 0 0 4px rgba(22,163,74,0.25); }
+      .toolbar button.feedback-error { background: #dc2626; box-shadow: 0 0 0 4px rgba(220,38,38,0.25); }
+      .hint { background: rgba(17,24,39,0.84); border-radius: 16px; bottom: 14px; color: white; font-size: 12px; font-weight: 800; left: 14px; padding: 9px 12px; position: absolute; z-index: 3; }
+      aside { padding: 16px; }
+      aside h2 { margin: 0 0 10px; }
+      .legend, .toggle-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+      .legend { align-items: center; gap: 12px; }
+      .legend-item { align-items: center; color: #475467; display: inline-flex; font-size: 12px; font-weight: 900; gap: 7px; }
+      .legend-line { border-radius: 999px; display: inline-block; height: 4px; width: 34px; }
+      .legend-line.backbone { background: #1d4ed8; height: 7px; }
+      .legend-line.enddevice { background: #15803d; height: 4px; }
+      .legend-line.old-backbone { background: #93c5fd; height: 7px; }
+      .legend-line.old-enddevice { background: #86efac; height: 4px; }
+      .legend-line.low { background: #64748b; height: 2px; }
+      .legend-line.high { background: #64748b; height: 12px; }
+      .legend-box { background: rgba(219,234,254,0.7); border: 2px dashed #94a3b8; border-radius: 7px; display: inline-block; height: 20px; width: 30px; }
+      .toggle { align-items: center; color: #475467; display: flex; font-weight: 800; gap: 6px; }
+      .pill { background: #eef4ff; border-radius: 999px; color: #175cd3; font-size: 12px; font-weight: 900; padding: 6px 10px; }
+      .search { border: 1px solid #d0d5dd; border-radius: 14px; font: inherit; margin-bottom: 10px; padding: 10px 12px; width: 100%; }
+      .device-list { display: grid; gap: 8px; max-height: 62vh; overflow: auto; }
+      .device { background: #f8fafc; border: 1px solid #e4e7ec; border-radius: 14px; color: #101828; cursor: pointer; padding: 10px; text-align: left; }
+      .device strong { display: block; }
+      .device span { color: #667085; display: block; font-size: 12px; margin-top: 2px; }
+      .empty, .error { color: #667085; font-weight: 800; padding: 10px; }
+      .error { color: #c94b32; }
+      @media(max-width:1100px) { body { padding: 10px; } .hero { display: block; } .dashboard-link { display: inline-block; margin-top: 12px; } .layout { grid-template-columns: 1fr; } .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } #cy, .map-panel { min-height: 650px; } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <h1>Zigbee routekort</h1>
+          <p>Live Cytoscape-layout af Homeys sidst kendte parent-routes plus 14 dages route-observationer. Mørk blå/grøn er senest brugt route; lys blå/grøn er tidligere routes. Tykkelsen følger antal observerede beskeder/routes.</p>
+        </div>
+        <a class="dashboard-link" href="/">Dashboard</a>
+      </header>
+
+      <section class="stats" aria-label="Zigbee opsummering">
+        <article class="stat"><strong id="stat-devices">-</strong><span>Zigbee-enheder</span></article>
+        <article class="stat"><strong id="stat-routers">-</strong><span>Routere</span></article>
+        <article class="stat"><strong id="stat-enddevices">-</strong><span>End devices</span></article>
+        <article class="stat"><strong id="stat-links">-</strong><span>Parents</span></article>
+        <article class="stat"><strong id="stat-routes">-</strong><span>Routes</span></article>
+        <article class="stat"><strong id="stat-unavailable">-</strong><span>Utilgængelige</span></article>
+        <article class="stat"><strong id="stat-channel">-</strong><span>Kanal</span></article>
+      </section>
+
+      <main class="layout">
+        <section class="panel map-panel">
+          <div class="toolbar">
+            <button id="fit" type="button">Fit</button>
+            <button id="routers" type="button">Routere</button>
+            <button id="all" type="button">Alle</button>
+            <button id="save-layout" type="button">Gem layout</button>
+            <button id="discard-layout" type="button">Fortryd ændringer</button>
+            <button id="reload" type="button">Reload</button>
+            <button id="reset-layout" type="button">Nulstil layout</button>
+          </div>
+          <div id="cy"></div>
+          <div class="hint" id="updated">Henter live data...</div>
+        </section>
+        <aside class="panel">
+          <h2>Enheder</h2>
+          <div class="legend" aria-label="Forklaring">
+            <span class="legend-item"><span class="legend-line backbone"></span>Senest router/coordinator</span>
+            <span class="legend-item"><span class="legend-line enddevice"></span>Senest end-device</span>
+            <span class="legend-item"><span class="legend-line old-backbone"></span>Tidligere router/coordinator</span>
+            <span class="legend-item"><span class="legend-line old-enddevice"></span>Tidligere end-device</span>
+            <span class="legend-item"><span class="legend-line low"></span>Få beskeder</span>
+            <span class="legend-item"><span class="legend-line high"></span>Mange beskeder</span>
+            <span class="legend-item"><span class="legend-box"></span>Zone</span>
+          </div>
+          <div class="toggle-row"><label class="toggle"><input id="show-end-labels" type="checkbox" checked> End-device navne</label><label class="toggle"><input id="show-zones" type="checkbox" checked> Zonekasser</label></div>
+          <input id="search" class="search" type="search" placeholder="Søg navn, zone, adresse...">
+          <div id="device-list" class="device-list"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script>
+      'use strict';
+
+      const cyEl = document.getElementById('cy');
+      const list = document.getElementById('device-list');
+      const search = document.getElementById('search');
+      const showEndLabels = document.getElementById('show-end-labels');
+      const showZones = document.getElementById('show-zones');
+      const updated = document.getElementById('updated');
+      const fitButton = document.getElementById('fit');
+      const routersButton = document.getElementById('routers');
+      const allButton = document.getElementById('all');
+      const saveLayoutButton = document.getElementById('save-layout');
+      const discardLayoutButton = document.getElementById('discard-layout');
+      const reloadButton = document.getElementById('reload');
+      const resetLayoutButton = document.getElementById('reset-layout');
+      let model = null;
+      let cy = null;
+      let byId = new Map();
+      let refreshTimer = null;
+      let isRefreshing = false;
+      let hasUnsavedLayout = false;
+      const refreshIntervalMs = 5 * 60 * 1000;
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        }[character]));
+      }
+
+      function resetButtonFeedback(button) {
+        button.classList.remove('feedback-active', 'feedback-busy', 'feedback-success', 'feedback-error');
+        button.disabled = false;
+        button.textContent = button.dataset.originalLabel || button.textContent;
+      }
+
+      function flashButton(button, label, className = 'feedback-success') {
+        button.dataset.originalLabel ||= button.textContent;
+        window.clearTimeout(Number(button.dataset.feedbackTimer || 0));
+        button.classList.remove('feedback-active', 'feedback-busy', 'feedback-success', 'feedback-error');
+        button.classList.add('feedback-active', className);
+        button.textContent = label;
+        button.dataset.feedbackTimer = String(window.setTimeout(() => resetButtonFeedback(button), 1200));
+      }
+
+      async function withButtonFeedback(button, busyLabel, successLabel, action) {
+        button.dataset.originalLabel ||= button.textContent;
+        window.clearTimeout(Number(button.dataset.feedbackTimer || 0));
+        button.classList.remove('feedback-active', 'feedback-success', 'feedback-error');
+        button.classList.add('feedback-busy');
+        button.disabled = true;
+        button.textContent = busyLabel;
+        try {
+          const result = await action();
+          button.classList.remove('feedback-busy');
+          button.classList.add('feedback-success');
+          button.textContent = successLabel;
+          return result;
+        } catch (error) {
+          button.classList.remove('feedback-busy');
+          button.classList.add('feedback-error');
+          button.textContent = 'Fejl';
+          throw error;
+        } finally {
+          button.dataset.feedbackTimer = String(window.setTimeout(() => resetButtonFeedback(button), 1400));
+        }
+      }
+
+      function nodeSize(node) {
+        if (node.category === 'coordinator') return 58;
+        if (node.category === 'router') return 30 + Math.min(30, Math.sqrt(node.childCount || 0) * 7);
+        if (node.category === 'unknown') return 24;
+        return 10;
+      }
+
+      function nodeLabel(node) {
+        return node.category === 'enddevice' ? '' : node.label;
+      }
+
+      function zoneGroupId(zoneShort) {
+        return `zone:${encodeURIComponent(zoneShort || 'Ukendt zone')}`;
+      }
+
+      function zoneColor(index) {
+        const colors = ['#93c5fd', '#86efac', '#fcd34d', '#c4b5fd', '#67e8f9', '#bef264', '#f9a8d4', '#fdba74'];
+        return colors[index % colors.length];
+      }
+
+      function zoneColorClass(index) {
+        return `zone-color-${index % 8}`;
+      }
+
+      function getServerLayout() {
+        return (model.history?.layout || []).reduce((result, item) => {
+          if (Number.isFinite(Number(item.x)) && Number.isFinite(Number(item.y))) {
+            result[item.id] = { x: Number(item.x), y: Number(item.y) };
+          }
+          return result;
+        }, {});
+      }
+
+      function isFinitePosition(position) {
+        return Number.isFinite(Number(position?.x)) && Number.isFinite(Number(position?.y));
+      }
+
+      function hasSavedDeviceLayout(savedLayout) {
+        return model.nodes.some((node) => isFinitePosition(savedLayout[node.id]));
+      }
+
+      function hashString(value) {
+        return String(value).split('').reduce((result, character) => ((result << 5) - result + character.charCodeAt(0)) | 0, 0);
+      }
+
+      function getLayoutBounds(savedLayout) {
+        const positions = Object.values(savedLayout).filter(isFinitePosition);
+        if (!positions.length) return { minX: 0, maxX: 0, minY: 0, maxY: 0, centerX: 0, centerY: 0 };
+
+        const xs = positions.map((position) => position.x);
+        const ys = positions.map((position) => position.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        return {
+          minX,
+          maxX,
+          minY,
+          maxY,
+          centerX: (minX + maxX) / 2,
+          centerY: (minY + maxY) / 2,
+        };
+      }
+
+      function getRouteEdges() {
+        const currentEdges = model.links.map((link) => [String(link.source), String(link.target)]);
+        const historyEdges = (model.history?.edges || []).map((edge) => [String(edge.source_id), String(edge.target_id)]);
+        return currentEdges.concat(historyEdges);
+      }
+
+      function getNeighborPositions(nodeId, savedLayout, routeEdges) {
+        return routeEdges.reduce((positions, [source, target]) => {
+          const otherId = source === nodeId ? target : target === nodeId ? source : null;
+          if (otherId && isFinitePosition(savedLayout[otherId])) positions.push(savedLayout[otherId]);
+          return positions;
+        }, []);
+      }
+
+      function getMissingNodePosition(node, index, savedLayout, routeEdges, bounds) {
+        const neighborPositions = getNeighborPositions(String(node.id), savedLayout, routeEdges);
+        if (neighborPositions.length) {
+          const anchor = neighborPositions.reduce((result, position) => ({
+            x: result.x + position.x / neighborPositions.length,
+            y: result.y + position.y / neighborPositions.length,
+          }), { x: 0, y: 0 });
+          const angle = (Math.abs(hashString(node.id)) % 360) * Math.PI / 180;
+          const radius = node.category === 'enddevice' ? 78 : 150;
+          return {
+            x: Math.round((anchor.x + Math.cos(angle) * radius) * 10) / 10,
+            y: Math.round((anchor.y + Math.sin(angle) * radius) * 10) / 10,
+          };
+        }
+
+        const columns = 8;
+        return {
+          x: bounds.maxX + 180 + (index % columns) * 90,
+          y: bounds.minY + Math.floor(index / columns) * 90,
+        };
+      }
+
+      function getStableLayout(savedLayout, nodes) {
+        const layout = { ...savedLayout };
+        const routeEdges = getRouteEdges();
+        const bounds = getLayoutBounds(layout);
+        let missingIndex = 0;
+
+        nodes.forEach((node) => {
+          if (isFinitePosition(layout[node.id])) return;
+
+          layout[node.id] = getMissingNodePosition(node, missingIndex, layout, routeEdges, bounds);
+          missingIndex += 1;
+        });
+
+        return layout;
+      }
+
+      async function saveLayout() {
+        if (!cy) return;
+        const layout = [];
+        cy.nodes().forEach((node) => {
+          const position = node.position();
+          layout.push({
+            id: node.id(),
+            x: Math.round(position.x * 10) / 10,
+            y: Math.round(position.y * 10) / 10,
+          });
+        });
+        const response = await fetch('/api/zigbee-layout', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ layout }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${response.status}`);
+        }
+        await response.json();
+        model.history.layout = layout;
+        hasUnsavedLayout = false;
+        updated.textContent = `Layout gemt på serveren · live data ${new Date(model.generatedAt).toLocaleString('da-DK')}`;
+      }
+
+      function getElements(savedLayout) {
+        const currentIds = new Set(model.nodes.map((node) => node.id));
+        const historyNodes = (model.history?.nodes || []).filter((node) => !currentIds.has(node.id)).map((node) => ({
+          id: node.id,
+          label: node.label,
+          category: node.category || 'unknown',
+          type: node.type || node.node_type || 'unknown',
+          zone: node.zone || 'Ukendt zone',
+          zoneShort: node.zone_short || 'Ukendt zone',
+          addressLabel: node.address_label || '',
+          childCount: node.child_count || 0,
+          available: node.available,
+          stale: true,
+        }));
+        const allNodes = model.nodes.concat(historyNodes);
+        const stableLayout = getStableLayout(savedLayout, allNodes);
+        const zoneCounts = allNodes.filter((node) => node.category === 'enddevice').reduce((result, node) => {
+          const zoneName = node.zoneShort || 'Ukendt zone';
+          result[zoneName] = (result[zoneName] || 0) + 1;
+          return result;
+        }, {});
+        const zoneNames = Object.keys(zoneCounts).filter((zoneName) => zoneCounts[zoneName] >= 2).sort((left, right) => left.localeCompare(right, 'da'));
+        const boxedZones = new Set(zoneNames);
+        const zoneNodes = zoneNames.map((zoneName, index) => ({
+          group: 'nodes',
+          data: {
+            id: zoneGroupId(zoneName),
+            label: zoneName,
+            category: 'zone',
+            available: true,
+            stale: false,
+            size: 1,
+            color: zoneColor(index),
+          },
+          classes: `zone-group ${zoneColorClass(index)}`,
+        }));
+        const nodes = allNodes.map((node) => ({
+          group: 'nodes',
+          data: {
+            id: node.id,
+            parent: node.category === 'enddevice' && showZones.checked && boxedZones.has(node.zoneShort || 'Ukendt zone') ? zoneGroupId(node.zoneShort || 'Ukendt zone') : undefined,
+            label: nodeLabel(node),
+            fullLabel: node.label,
+            category: node.category,
+            zone: node.zone,
+            address: node.addressLabel,
+            childCount: node.childCount,
+            available: node.available,
+            stale: node.stale || model.history?.nodes?.find((item) => item.id === node.id)?.stale || false,
+            size: nodeSize(node),
+          },
+          position: stableLayout[node.id] || undefined,
+        }));
+        const allNodesById = new Map(allNodes.map((node) => [String(node.id), node]));
+        const visualEdgeKey = (source, target) => [String(source), String(target)].sort().join('<->');
+        const edgeType = (source, target, sourceCategory = null) => {
+          const sourceNode = allNodesById.get(String(source));
+          const targetNode = allNodesById.get(String(target));
+          return [sourceCategory, sourceNode?.category, targetNode?.category].includes('enddevice') ? 'enddevice' : 'backbone';
+        };
+        const historyObservationByKey = (model.history?.edges || []).reduce((result, edge) => {
+          const key = visualEdgeKey(edge.source_id, edge.target_id);
+          result[key] = (result[key] || 0) + (Number(edge.observations) || 0);
+          return result;
+        }, {});
+        const currentEdgeKeys = new Set(model.links.map((link) => visualEdgeKey(link.source, link.target)));
+        const mergedHistory = (model.history?.edges || []).reduce((result, edge) => {
+          const key = visualEdgeKey(edge.source_id, edge.target_id);
+          if (currentEdgeKeys.has(key)) return result;
+          const existing = result.get(key);
+          if (!existing) {
+            result.set(key, { ...edge, observations: Number(edge.observations) || 0 });
+            return result;
+          }
+          existing.observations += Number(edge.observations) || 0;
+          if (new Date(edge.last_observed_at || 0) > new Date(existing.last_observed_at || 0)) {
+            existing.source_id = edge.source_id;
+            existing.target_id = edge.target_id;
+            existing.source_category = edge.source_category;
+            existing.last_observed_at = edge.last_observed_at;
+          }
+          return result;
+        }, new Map());
+        const rankedHistory = [...mergedHistory.values()]
+          .sort((left, right) => right.observations - left.observations);
+        const maxObservations = Math.max(
+          1,
+          ...Object.values(historyObservationByKey),
+          ...rankedHistory.map((edge) => Number(edge.observations) || 0),
+        );
+        const edgeWidth = (observations, type) => {
+          const normalized = Math.pow(Math.max(1, Number(observations) || 1) / maxObservations, 1.25);
+          const min = type === 'enddevice' ? 0.8 : 1.4;
+          const max = type === 'enddevice' ? 6 : 14;
+          return Math.round((min + (max - min) * normalized) * 10) / 10;
+        };
+        const edgeColor = (type, latest) => {
+          if (type === 'enddevice') return latest ? '#15803d' : '#86efac';
+          return latest ? '#1d4ed8' : '#93c5fd';
+        };
+        const historyEdges = rankedHistory.map((edge) => ({
+          group: 'edges',
+          data: {
+            id: `history:${edge.source_id}->${edge.target_id}`,
+            source: edge.source_id,
+            target: edge.target_id,
+            kind: 'history',
+            observations: edge.observations,
+            type: edgeType(edge.source_id, edge.target_id, edge.source_category),
+            width: edgeWidth(edge.observations, edgeType(edge.source_id, edge.target_id, edge.source_category)),
+            color: edgeColor(edgeType(edge.source_id, edge.target_id, edge.source_category), false),
+          },
+          classes: `history ${edgeType(edge.source_id, edge.target_id, edge.source_category)}`,
+        }));
+        const parents = model.links.map((link) => ({
+          group: 'edges',
+          data: {
+            id: link.id,
+            source: link.source,
+            target: link.target,
+            kind: 'parent',
+            sourceCategory: link.sourceCategory,
+            type: edgeType(link.source, link.target, link.sourceCategory),
+            observations: historyObservationByKey[visualEdgeKey(link.source, link.target)] || 1,
+            width: edgeWidth(historyObservationByKey[visualEdgeKey(link.source, link.target)] || 1, edgeType(link.source, link.target, link.sourceCategory)),
+            color: edgeColor(edgeType(link.source, link.target, link.sourceCategory), true),
+            route: link.routeLabels.join(' -> '),
+          },
+          classes: `parent ${edgeType(link.source, link.target, link.sourceCategory)}`,
+        }));
+        return zoneNodes.concat(nodes, historyEdges, parents);
+      }
+
+      function setStats() {
+        document.getElementById('stat-devices').textContent = model.totals.devices;
+        document.getElementById('stat-routers').textContent = model.totals.routers;
+        document.getElementById('stat-enddevices').textContent = model.totals.enddevices;
+        document.getElementById('stat-links').textContent = model.totals.links;
+        document.getElementById('stat-routes').textContent = model.totals.routeEntries;
+        document.getElementById('stat-unavailable').textContent = model.totals.unavailable;
+        document.getElementById('stat-channel').textContent = model.controller.channel || '-';
+        updated.textContent = `Live data ${new Date(model.generatedAt).toLocaleString('da-DK')}`;
+      }
+
+      function setEndLabels() {
+        if (!cy) return;
+        cy.batch(() => {
+          cy.nodes('[category = "enddevice"]').forEach((node) => node.data('label', showEndLabels.checked ? node.data('fullLabel') : ''));
+        });
+      }
+
+      function renderList() {
+        const query = search.value.trim().toLowerCase();
+        const visible = model.nodes
+          .filter((node) => node.category !== 'coordinator')
+          .filter((node) => !query || [node.label, node.zone, node.addressLabel, node.product, node.manufacturer].join(' ').toLowerCase().includes(query))
+          .sort((left, right) => {
+            if (left.category !== right.category) return left.category === 'router' ? -1 : 1;
+            return String(left.label).localeCompare(String(right.label), 'da');
+          });
+        list.innerHTML = visible.length ? visible.map((node) => `<button class="device" type="button" data-focus-node="${escapeHtml(node.id)}"><strong>${escapeHtml(node.label)}</strong><span>${escapeHtml(`${node.category} · ${node.zoneShort} · ${node.addressLabel} · children ${node.childCount}`)}</span></button>`).join('') : '<div class="empty">Ingen match</div>';
+      }
+
+      function focusNode(id) {
+        const node = cy.getElementById(id);
+        if (!node.length) return;
+        cy.elements().removeClass('dim focus');
+        const neighborhood = node.closedNeighborhood();
+        cy.elements().not(neighborhood).addClass('dim');
+        neighborhood.addClass('focus');
+        node.select();
+        cy.animate({ center: { eles: node }, zoom: Math.max(1.1, Math.min(2.2, cy.zoom() * 1.15)) }, { duration: 280 });
+      }
+
+      function getViewport() {
+        if (!cy) return null;
+        const pan = cy.pan();
+        const zoom = cy.zoom();
+        return Number.isFinite(zoom) && pan ? { zoom, pan: { x: pan.x, y: pan.y } } : null;
+      }
+
+      function createGraph(forceNewLayout = false, viewport = null) {
+        if (cy) cy.destroy();
+        const savedLayout = forceNewLayout ? {} : getServerLayout();
+        const useSavedLayout = hasSavedDeviceLayout(savedLayout);
+        cy = cytoscape({
+          container: cyEl,
+          elements: getElements(savedLayout),
+          wheelSensitivity: 0.42,
+          style: [
+            { selector: 'node', style: { width: 'data(size)', height: 'data(size)', 'background-color': '#16a34a', 'border-width': 2, 'border-color': '#fff', label: 'data(label)', 'font-size': 10, 'font-weight': 800, color: '#0f172a', 'text-outline-color': '#fff', 'text-outline-width': 3, 'text-margin-x': 8, 'text-halign': 'right', 'text-valign': 'center' } },
+            { selector: 'node.zone-group', style: { 'background-color': 'data(color)', 'background-opacity': 0.24, 'border-color': 'data(color)', 'border-opacity': 0.72, 'border-width': 1.25, 'border-style': 'dashed', label: 'data(label)', 'font-size': 10, 'font-weight': 900, color: '#475569', 'text-outline-color': '#fff', 'text-outline-width': 2, 'text-valign': 'top', 'text-halign': 'center', padding: 14, shape: 'round-rectangle', 'z-index': 0 } },
+            { selector: 'node.zone-color-0', style: { 'background-color': '#93c5fd', 'border-color': '#3b82f6' } },
+            { selector: 'node.zone-color-1', style: { 'background-color': '#86efac', 'border-color': '#22c55e' } },
+            { selector: 'node.zone-color-2', style: { 'background-color': '#fcd34d', 'border-color': '#f59e0b' } },
+            { selector: 'node.zone-color-3', style: { 'background-color': '#c4b5fd', 'border-color': '#8b5cf6' } },
+            { selector: 'node.zone-color-4', style: { 'background-color': '#67e8f9', 'border-color': '#06b6d4' } },
+            { selector: 'node.zone-color-5', style: { 'background-color': '#bef264', 'border-color': '#84cc16' } },
+            { selector: 'node.zone-color-6', style: { 'background-color': '#f9a8d4', 'border-color': '#ec4899' } },
+            { selector: 'node.zone-color-7', style: { 'background-color': '#fdba74', 'border-color': '#f97316' } },
+            { selector: 'node[category = "coordinator"]', style: { 'background-color': '#f59e0b', width: 64, height: 64, 'font-size': 13 } },
+            { selector: 'node[category = "router"]', style: { 'background-color': '#2f80ed' } },
+            { selector: 'node[category = "unknown"]', style: { 'background-color': '#94a3b8' } },
+            { selector: 'node[stale = true]', style: { 'background-color': '#9ca3af', 'border-color': '#6b7280' } },
+            { selector: 'node[category != "zone"][available = false]', style: { 'background-color': '#c94b32' } },
+            { selector: 'node:selected', style: { 'border-width': 6, 'border-color': '#111827', 'z-index': 20 } },
+            { selector: 'edge', style: { 'curve-style': 'haystack', 'haystack-radius': 0.55, 'target-arrow-shape': 'none', 'line-cap': 'round' } },
+            { selector: 'edge.parent', style: { width: 'data(width)', 'line-color': 'data(color)', opacity: 0.78, 'z-index': 8 } },
+            { selector: 'edge.parent.enddevice', style: { opacity: 0.64 } },
+            { selector: 'edge.history', style: { width: 'data(width)', 'line-color': 'data(color)', opacity: 0.34, 'z-index': 1 } },
+            { selector: 'edge.history.enddevice', style: { opacity: 0.28 } },
+            { selector: '.dim', style: { opacity: 0.12 } },
+            { selector: '.focus', style: { opacity: 1, 'z-index': 30 } },
+          ],
+          layout: useSavedLayout ? { name: 'preset', fit: true, padding: 70 } : { name: 'cose', animate: false, fit: true, padding: 70, nodeRepulsion: (node) => (node.data('category') === 'enddevice' ? 90000 : 520000), idealEdgeLength: (edge) => (edge.source().data('category') === 'enddevice' ? 44 : 105), edgeElasticity: 180, nestingFactor: 1.2, gravity: 0.18, numIter: 2400, initialTemp: 180, coolingFactor: 0.95, minTemp: 1 },
+        });
+        cy.on('tap', 'node', (event) => focusNode(event.target.id()));
+        cy.on('tap', (event) => {
+          if (event.target === cy) {
+            cy.elements().removeClass('dim focus');
+            cy.$(':selected').unselect();
+          }
+        });
+        cy.on('dragfree', 'node', () => {
+          hasUnsavedLayout = true;
+          updated.textContent = 'Layout ændret · autorefresh pauset indtil du gemmer';
+        });
+        setEndLabels();
+        setTimeout(() => {
+          if (viewport) {
+            cy.viewport(viewport);
+          } else {
+            cy.fit(undefined, 70);
+          }
+        }, 80);
+      }
+
+      async function loadMap(options = {}) {
+        if (isRefreshing) return;
+        const viewport = options.preserveViewport ? getViewport() : null;
+        isRefreshing = true;
+        updated.textContent = 'Henter live data...';
+        list.innerHTML = '<div class="empty">Henter...</div>';
+        try {
+          const layoutRequest = hasUnsavedLayout
+            ? Promise.resolve({ ok: true, json: async () => ({ layout: model?.history?.layout || [] }) })
+            : fetch('/api/zigbee-layout', { headers: { accept: 'application/json' } });
+          const [mapResponse, layoutResponse] = await Promise.all([
+            fetch('/api/zigbee-map', { headers: { accept: 'application/json' } }),
+            layoutRequest,
+          ]);
+          if (!mapResponse.ok) throw new Error((await mapResponse.json()).error || `HTTP ${mapResponse.status}`);
+          if (!layoutResponse.ok) throw new Error((await layoutResponse.json()).error || `HTTP ${layoutResponse.status}`);
+          model = await mapResponse.json();
+          const layout = await layoutResponse.json();
+          model.history ||= {};
+          model.history.layout = Array.isArray(layout.layout) ? layout.layout : [];
+          byId = new Map(model.nodes.map((node) => [node.id, node]));
+          setStats();
+          createGraph(false, viewport);
+          renderList();
+          if (hasUnsavedLayout) updated.textContent = 'Live data opdateret · layout ikke gemt endnu';
+        } finally {
+          isRefreshing = false;
+        }
+      }
+
+      function scheduleRefresh() {
+        window.clearInterval(refreshTimer);
+        refreshTimer = window.setInterval(() => {
+          if (document.hidden) return;
+          if (hasUnsavedLayout) return;
+          loadMap({ preserveViewport: true }).catch((error) => { updated.textContent = `Autorefresh fejlede: ${error.message}`; });
+        }, refreshIntervalMs);
+      }
+
+      fitButton.addEventListener('click', () => {
+        cy.elements().removeClass('dim focus');
+        cy.fit(undefined, 70);
+        flashButton(fitButton, 'Fittet');
+      });
+      routersButton.addEventListener('click', () => {
+        cy.fit(cy.nodes('[category = "router"],[category = "coordinator"],[category = "unknown"]'), 90);
+        flashButton(routersButton, 'Vist');
+      });
+      allButton.addEventListener('click', () => {
+        cy.fit(undefined, 70);
+        flashButton(allButton, 'Vist');
+      });
+      saveLayoutButton.addEventListener('click', () => {
+        withButtonFeedback(saveLayoutButton, 'Gemmer...', 'Gemt', saveLayout)
+          .catch((error) => { updated.textContent = `Kunne ikke gemme layout: ${error.message}`; });
+      });
+      discardLayoutButton.addEventListener('click', () => {
+        withButtonFeedback(discardLayoutButton, 'Fortryder...', 'Fortrudt', async () => {
+          hasUnsavedLayout = false;
+          await loadMap({ preserveViewport: true });
+        }).catch((error) => { list.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; });
+      });
+      reloadButton.addEventListener('click', () => {
+        if (hasUnsavedLayout) {
+          updated.textContent = 'Reload sprunget over · gem, fortryd eller nulstil layout først';
+          flashButton(reloadButton, 'Pauset', 'feedback-error');
+          return;
+        }
+        withButtonFeedback(reloadButton, 'Henter...', 'Reloadet', () => loadMap({ preserveViewport: true }))
+          .catch((error) => { list.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; });
+      });
+      resetLayoutButton.addEventListener('click', () => {
+        withButtonFeedback(resetLayoutButton, 'Nulstiller...', 'Nulstillet', async () => {
+          if (model.history) model.history.layout = [];
+          createGraph(true);
+          hasUnsavedLayout = true;
+          updated.textContent = `Layout nulstillet lokalt · gem hvis det skal bruges fremover · live data ${new Date(model.generatedAt).toLocaleString('da-DK')}`;
+        }).catch((error) => { updated.textContent = `Kunne ikke nulstille layout: ${error.message}`; });
+      });
+      list.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-focus-node]');
+        if (button) focusNode(button.dataset.focusNode);
+      });
+      search.addEventListener('input', renderList);
+      showEndLabels.addEventListener('change', setEndLabels);
+      showZones.addEventListener('change', () => createGraph(false));
+      document.addEventListener('visibilitychange', () => {
+        if (hasUnsavedLayout) return;
+        if (!document.hidden) loadMap({ preserveViewport: true }).catch((error) => { updated.textContent = `Autorefresh fejlede: ${error.message}`; });
+      });
+      loadMap().then(scheduleRefresh).catch((error) => {
+        updated.textContent = 'Kunne ikke hente Zigbee-data';
+        list.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+      });
+    </script>
+  </body>
+</html>

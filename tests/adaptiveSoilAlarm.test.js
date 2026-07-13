@@ -43,6 +43,23 @@ test('crossing lower threshold enters aggressive alarm mode', () => {
   assert.equal(next.reportInterval, 60);
 });
 
+test('significant moisture change in normal state enables faster sampling without alarm', () => {
+  const config = deriveAdaptiveAlarmConfig({ alarmThreshold: 20, pollInterval: 240 });
+  const next = reconcileAdaptiveAlarm({
+    currentState: STATES.NORMAL,
+    stateStartedAt: 0,
+    previousMoisture: 45,
+    currentMoisture: 50,
+    currentAlarm: false,
+    now: 1000,
+    config,
+  });
+
+  assert.equal(next.state, STATES.RECOVERY_AGGRESSIVE);
+  assert.equal(next.alarmActive, false);
+  assert.equal(next.reportInterval, 24);
+});
+
 test('alarm stays active until upper threshold is reached', () => {
   const config = deriveAdaptiveAlarmConfig({ alarmThreshold: 20, pollInterval: 600 });
   const next = reconcileAdaptiveAlarm({

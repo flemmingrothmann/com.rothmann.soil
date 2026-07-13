@@ -1,6 +1,6 @@
 'use strict';
 
-/* eslint-disable no-console */
+/* eslint-disable no-console, no-use-before-define */
 
 const http = require('http');
 const { Pool } = require('pg');
@@ -245,6 +245,47 @@ async function initializeDatabase() {
 
     create index if not exists ix_energy_usage_15m_device_time
       on energy_usage_15m (homey_device_id, bucket_start desc);
+
+    create table if not exists zigbee_route_node_observation (
+      bucket_start timestamptz not null,
+      node_id text not null,
+      label text,
+      category text,
+      node_type text,
+      address_label text,
+      zone text,
+      zone_short text,
+      last_seen timestamptz,
+      available boolean,
+      child_count integer,
+      payload jsonb not null default '{}'::jsonb,
+      observed_at timestamptz not null default now(),
+      primary key (bucket_start, node_id)
+    );
+
+    create index if not exists ix_zigbee_route_node_observation_node_time
+      on zigbee_route_node_observation (node_id, bucket_start desc);
+
+    create table if not exists zigbee_route_edge_observation (
+      bucket_start timestamptz not null,
+      source_id text not null,
+      target_id text not null,
+      source_category text,
+      route_depth integer,
+      payload jsonb not null default '{}'::jsonb,
+      observed_at timestamptz not null default now(),
+      primary key (bucket_start, source_id, target_id)
+    );
+
+    create index if not exists ix_zigbee_route_edge_observation_edge_time
+      on zigbee_route_edge_observation (source_id, target_id, bucket_start desc);
+
+    create table if not exists zigbee_map_layout (
+      node_id text primary key,
+      x double precision not null,
+      y double precision not null,
+      updated_at timestamptz not null default now()
+    );
   `);
 
   // eslint-disable-next-line no-use-before-define
@@ -553,7 +594,12 @@ async function fetchElspotPrices({ from, to, priceArea }) {
   for (const day of missingDays) {
     if (!ELSPOT_PRIMARY_ENABLED) {
       try {
-        records.push(...await fetchFallbackElspotDay({ day, priceArea, from, to }));
+        records.push(...await fetchFallbackElspotDay({
+          day,
+          priceArea,
+          from,
+          to,
+        }));
       } catch (error) {
         console.warn(`Elspot fallback skipped ${day.year}-${day.month}-${day.day}: ${error.message || error}`);
       }
@@ -565,7 +611,12 @@ async function fetchElspotPrices({ from, to, priceArea }) {
     } catch (error) {
       console.warn(`Elspot primary source failed for ${day.year}-${day.month}-${day.day}, using fallback: ${error.message || error}`);
       try {
-        records.push(...await fetchFallbackElspotDay({ day, priceArea, from, to }));
+        records.push(...await fetchFallbackElspotDay({
+          day,
+          priceArea,
+          from,
+          to,
+        }));
       } catch (fallbackError) {
         console.warn(`Elspot fallback skipped ${day.year}-${day.month}-${day.day}: ${fallbackError.message || fallbackError}`);
       }
@@ -589,14 +640,6 @@ function getUtcDateKeysBetween(from, to) {
     keys.push({ year, month, day });
   }
   return keys;
-}
-
-async function fetchFallbackElspotPrices({ from, to, priceArea }) {
-  const records = [];
-  for (const key of getUtcDateKeysBetween(from, to)) {
-    records.push(...await fetchFallbackElspotDay({ day: key, priceArea, from, to }));
-  }
-  return records;
 }
 
 async function getMissingPriceDays({ from, to, priceArea }) {
@@ -645,7 +688,12 @@ async function fetchEnergyDataServiceElspotDay({ day, priceArea }) {
   });
 }
 
-async function fetchFallbackElspotDay({ day, priceArea, from, to }) {
+async function fetchFallbackElspotDay({
+  day,
+  priceArea,
+  from,
+  to,
+}) {
   const url = `${ELSPOT_FALLBACK_API_URL}/${day.year}/${day.month}-${day.day}_${priceArea}.json`;
   const json = await fetchJson(url);
   if (!Array.isArray(json)) return [];
@@ -682,9 +730,12 @@ async function importEnergyPrices({ from, to, priceArea }) {
       const gridTariff = datahubComponents
         ? datahubComponents.gridTariff + datahubComponents.other
         : getN1TariffDkkPerKwh(intervalStart);
+      const configuredTaxes = Number.isFinite(ELECTRICITY_TAX_DKK_PER_KWH)
+        ? ELECTRICITY_TAX_DKK_PER_KWH
+        : 0;
       const taxes = datahubComponents
         ? datahubComponents.taxes
-        : (Number.isFinite(ELECTRICITY_TAX_DKK_PER_KWH) ? ELECTRICITY_TAX_DKK_PER_KWH : 0);
+        : configuredTaxes;
       const vatRate = Number.isFinite(VAT_RATE) ? VAT_RATE : 0;
       const effective = (spotDkkPerKwh + gridTariff + taxes) * (1 + vatRate);
       const payload = {
@@ -840,6 +891,198 @@ async function handleIngest(request, response) {
 
 function getObjectEntries(value) {
   return Object.entries(value || {});
+}
+
+function getZigbeeBucketStart(value = new Date()) {
+  const date = new Date(value);
+  const minutes = Math.floor(date.getUTCMinutes() / 10) * 10;
+  date.setUTCMinutes(minutes, 0, 0);
+  return date.toISOString();
+}
+
+async function handleZigbeeRouteSnapshot(request, response) {
+  if (!isAuthorized(request)) {
+    sendError(response, 401, 'Unauthorized');
+    return;
+  }
+
+  const body = await readRequestBody(request);
+  const snapshot = body ? JSON.parse(body) : {};
+  const bucketStart = getZigbeeBucketStart(snapshot.generatedAt || new Date());
+  const nodes = Array.isArray(snapshot.nodes) ? snapshot.nodes : [];
+  const links = Array.isArray(snapshot.links) ? snapshot.links : [];
+  const client = await pool.connect();
+
+  try {
+    await client.query('begin');
+    for (const node of nodes) {
+      await client.query(`
+        insert into zigbee_route_node_observation (
+          bucket_start, node_id, label, category, node_type, address_label, zone, zone_short,
+          last_seen, available, child_count, payload, observed_at
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, now())
+        on conflict (bucket_start, node_id) do update set
+          label = excluded.label,
+          category = excluded.category,
+          node_type = excluded.node_type,
+          address_label = excluded.address_label,
+          zone = excluded.zone,
+          zone_short = excluded.zone_short,
+          last_seen = excluded.last_seen,
+          available = excluded.available,
+          child_count = excluded.child_count,
+          payload = excluded.payload,
+          observed_at = excluded.observed_at
+      `, [
+        bucketStart,
+        String(node.id),
+        node.label || null,
+        node.category || null,
+        node.type || null,
+        node.addressLabel || null,
+        node.zone || null,
+        node.zoneShort || null,
+        node.lastSeen || null,
+        node.available,
+        Number.isFinite(Number(node.childCount)) ? Number(node.childCount) : null,
+        JSON.stringify(node),
+      ]);
+    }
+
+    for (const link of links) {
+      await client.query(`
+        insert into zigbee_route_edge_observation (
+          bucket_start, source_id, target_id, source_category, route_depth, payload, observed_at
+        ) values ($1, $2, $3, $4, $5, $6::jsonb, now())
+        on conflict (bucket_start, source_id, target_id) do update set
+          source_category = excluded.source_category,
+          route_depth = excluded.route_depth,
+          payload = excluded.payload,
+          observed_at = excluded.observed_at
+      `, [
+        bucketStart,
+        String(link.source),
+        String(link.target),
+        link.sourceCategory || null,
+        Number.isFinite(Number(link.depth)) ? Number(link.depth) : null,
+        JSON.stringify(link),
+      ]);
+    }
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  sendJson(response, 202, {
+    ok: true,
+    bucketStart,
+    nodes: nodes.length,
+    links: links.length,
+  });
+}
+
+async function getZigbeeRouteHistory(requestUrl, response) {
+  const days = Math.max(1, Math.min(30, Number(requestUrl.searchParams.get('days') || 14)));
+  const params = [days];
+  const [nodes, edges, layout] = await Promise.all([
+    pool.query(`
+      select distinct on (node_id)
+        node_id as id,
+        label,
+        category,
+        node_type as type,
+        address_label,
+        zone,
+        zone_short,
+        last_seen,
+        available,
+        child_count,
+        payload,
+        bucket_start as last_observed_at,
+        coalesce(last_seen, bucket_start) < now() - interval '24 hours' as stale
+      from zigbee_route_node_observation
+      where bucket_start >= now() - ($1::int * interval '1 day')
+      order by node_id, bucket_start desc
+    `, params),
+    pool.query(`
+      with ranked_edges as (
+        select source_id,
+          target_id,
+          source_category,
+          payload,
+          bucket_start,
+          count(*) over (partition by source_id, target_id)::int as observations,
+          max(bucket_start) over (partition by source_id, target_id) as last_observed_at,
+          row_number() over (partition by source_id, target_id order by bucket_start desc) as row_number
+        from zigbee_route_edge_observation
+        where bucket_start >= now() - ($1::int * interval '1 day')
+      )
+      select source_id,
+        target_id,
+        source_category,
+        observations,
+        last_observed_at,
+        payload
+      from ranked_edges
+      where row_number = 1
+      order by observations desc, source_id, target_id
+    `, params),
+    pool.query('select node_id as id, x, y, updated_at from zigbee_map_layout'),
+  ]);
+
+  sendJson(response, 200, {
+    generatedAt: new Date().toISOString(),
+    days,
+    nodes: nodes.rows,
+    edges: edges.rows,
+    layout: layout.rows,
+  });
+}
+
+async function getZigbeeLayout(response) {
+  const result = await pool.query('select node_id as id, x, y, updated_at from zigbee_map_layout order by node_id');
+  sendJson(response, 200, { generatedAt: new Date().toISOString(), layout: result.rows });
+}
+
+async function putZigbeeLayout(request, response) {
+  if (!isAuthorized(request)) {
+    sendError(response, 401, 'Unauthorized');
+    return;
+  }
+
+  const body = await readRequestBody(request);
+  const parsed = body ? JSON.parse(body) : {};
+  const layout = Array.isArray(parsed.layout) ? parsed.layout : [];
+  const client = await pool.connect();
+
+  try {
+    await client.query('begin');
+    if (parsed.clear === true) {
+      await client.query('delete from zigbee_map_layout');
+    }
+    for (const item of layout) {
+      if (!item.id || !Number.isFinite(Number(item.x)) || !Number.isFinite(Number(item.y))) continue;
+      await client.query(`
+        insert into zigbee_map_layout (node_id, x, y, updated_at)
+        values ($1, $2, $3, now())
+        on conflict (node_id) do update set
+          x = excluded.x,
+          y = excluded.y,
+          updated_at = excluded.updated_at
+      `, [String(item.id), Number(item.x), Number(item.y)]);
+    }
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  sendJson(response, 202, { ok: true, saved: layout.length });
 }
 
 function toCapabilityArray(device) {
@@ -1230,7 +1473,13 @@ async function handleEnergyRebuild(request, response) {
   }
 
   const buckets = await rebuildEnergyUsage({ from, to, priceArea });
-  sendJson(response, 202, { ok: true, from, to, priceArea, buckets });
+  sendJson(response, 202, {
+    ok: true,
+    from,
+    to,
+    priceArea,
+    buckets,
+  });
 }
 
 async function handleEnergyPriceImport(request, response) {
@@ -1261,7 +1510,14 @@ async function handleEnergyPriceImport(request, response) {
   }
 
   const result = await importEnergyPrices({ from, to, priceArea });
-  sendJson(response, 202, { ok: true, from, to, priceArea, forced: parsed.force === true, ...result });
+  sendJson(response, 202, {
+    ok: true,
+    from,
+    to,
+    priceArea,
+    forced: parsed.force === true,
+    ...result,
+  });
 }
 
 async function getEnergyUsage(requestUrl, response) {
@@ -1483,6 +1739,22 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'POST' && url.pathname === '/api/sync/homey') {
       await handleHomeySync(request, response);
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/zigbee/routes/snapshot') {
+      await handleZigbeeRouteSnapshot(request, response);
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/zigbee/routes/history') {
+      await getZigbeeRouteHistory(url, response);
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/zigbee/layout') {
+      await getZigbeeLayout(response);
+      return;
+    }
+    if (request.method === 'PUT' && url.pathname === '/api/zigbee/layout') {
+      await putZigbeeLayout(request, response);
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/energy/prices') {
