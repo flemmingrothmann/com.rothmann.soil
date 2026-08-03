@@ -38,6 +38,7 @@ function getSetting(homey, key, envKey) {
 function shouldTrackCapability(capability) {
   return capability === 'onoff'
     || capability === 'dim'
+    || capability.startsWith('light_')
     || capability.startsWith('alarm_')
     || capability.startsWith('measure_')
     || capability.startsWith('meter_')
@@ -214,6 +215,15 @@ class HomeyWingmanBridge {
     }
   }
 
+  async getLogicVariables() {
+    try {
+      return await this.homeyApi.logic.getVariables({ $cache: false });
+    } catch (error) {
+      this.error(`Homey Wingman Logic variable sync skipped: ${error.message || error}`);
+      return {};
+    }
+  }
+
   async syncHomeySnapshot() {
     if (this.syncing || !this.homeyApi) return;
 
@@ -223,7 +233,7 @@ class HomeyWingmanBridge {
 
     this.syncing = true;
     try {
-      const [devices, zones, flows, advancedFlows, timers] = await Promise.all([
+      const [devices, zones, flows, advancedFlows, timers, logicVariables] = await Promise.all([
         this.homeyApi.devices.getDevices({ $cache: false }),
         this.homeyApi.zones.getZones({ $cache: false }),
         config.syncFlows ? this.homeyApi.flow.getFlows({ $cache: false }).catch((error) => {
@@ -235,6 +245,7 @@ class HomeyWingmanBridge {
           return {};
         }) : {},
         this.getTimers(config),
+        this.getLogicVariables(),
       ]);
 
       const response = await fetch(syncUrl, {
@@ -251,6 +262,7 @@ class HomeyWingmanBridge {
           flows: this.toPlain(flows),
           advancedFlows: this.toPlain(advancedFlows),
           timers: this.toPlain(timers),
+          logicVariables: this.toPlain(logicVariables),
         }),
       });
 
@@ -261,7 +273,7 @@ class HomeyWingmanBridge {
 
       const result = await response.json().catch(() => ({}));
       this.log(`Homey Wingman snapshot synced devices=${result.devices || 0} zones=${result.zones || 0} flows=${result.flows || 0} advancedFlows=${result.advancedFlows || 0}`);
-      this.log(`Homey Wingman snapshot synced timers=${result.timers || 0}`);
+      this.log(`Homey Wingman snapshot synced timers=${result.timers || 0} logicVariables=${result.logicVariables || 0}`);
     } finally {
       this.syncing = false;
     }
@@ -321,6 +333,10 @@ class HomeyWingmanBridge {
       value,
       unit: capabilityInfo.units || capabilityInfo.unit || null,
       available: device.available !== false,
+      source_system: 'homey',
+      source_instance: this.homey.id || null,
+      author_system: null,
+      event_type: 'observation',
     };
   }
 

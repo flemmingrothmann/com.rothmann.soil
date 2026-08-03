@@ -1,0 +1,13 @@
+{
+  "name": "homey-replay-service",
+  "version": "0.0.1",
+  "private": true,
+  "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  }
+}

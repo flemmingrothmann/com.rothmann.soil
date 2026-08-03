@@ -137,6 +137,14 @@ async function initializeDatabase() {
       value_boolean boolean,
       unit text,
       available boolean,
+      source_system text not null default 'homey',
+      source_instance text,
+      source_event_id text,
+      author_system text,
+      event_type text not null default 'observation',
+      causation_id text,
+      correlation_id text,
+      replay_run_id text,
       payload jsonb not null
     );
 
@@ -160,6 +168,14 @@ async function initializeDatabase() {
       value_boolean boolean,
       unit text,
       available boolean,
+      source_system text not null default 'homey',
+      source_instance text,
+      source_event_id text,
+      author_system text,
+      event_type text not null default 'observation',
+      causation_id text,
+      correlation_id text,
+      replay_run_id text,
       payload jsonb not null,
       primary key (homey_device_id, capability)
     );
@@ -205,6 +221,32 @@ async function initializeDatabase() {
       payload jsonb not null,
       synced_at timestamptz not null default now()
     );
+
+    create table if not exists homey_logic_variable (
+      id text primary key,
+      name text not null,
+      payload jsonb not null,
+      synced_at timestamptz not null default now()
+    );
+
+    create table if not exists device_route (
+      id bigserial primary key,
+      source_system text not null,
+      source_device_id text not null,
+      target_system text not null,
+      target_device_id text not null,
+      valid_from timestamptz not null default '-infinity',
+      valid_to timestamptz,
+      payload jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now(),
+      constraint device_route_validity check (valid_to is null or valid_to > valid_from)
+    );
+
+    create unique index if not exists ux_device_route_source_target_from
+      on device_route (source_system, source_device_id, target_system, target_device_id, valid_from);
+
+    create index if not exists ix_device_route_source_validity
+      on device_route (source_system, source_device_id, valid_from desc);
 
     create table if not exists price_interval (
       price_area text not null,
@@ -288,6 +330,32 @@ async function initializeDatabase() {
     );
   `);
 
+  // Existing deployments predate event provenance; keep their history intact.
+  await pool.query(`
+    alter table ingest_event add column if not exists source_system text not null default 'homey';
+    alter table ingest_event add column if not exists source_instance text;
+    alter table ingest_event add column if not exists source_event_id text;
+    alter table ingest_event add column if not exists author_system text;
+    alter table ingest_event add column if not exists event_type text not null default 'observation';
+    alter table ingest_event add column if not exists causation_id text;
+    alter table ingest_event add column if not exists correlation_id text;
+    alter table ingest_event add column if not exists replay_run_id text;
+    alter table state_current add column if not exists source_system text not null default 'homey';
+    alter table state_current add column if not exists source_instance text;
+    alter table state_current add column if not exists source_event_id text;
+    alter table state_current add column if not exists author_system text;
+    alter table state_current add column if not exists event_type text not null default 'observation';
+    alter table state_current add column if not exists causation_id text;
+    alter table state_current add column if not exists correlation_id text;
+    alter table state_current add column if not exists replay_run_id text;
+    create index if not exists ix_ingest_event_source_event
+      on ingest_event (source_system, source_event_id, event_time desc)
+      where source_event_id is not null;
+    insert into device_route (source_system, source_device_id, target_system, target_device_id)
+      select 'homey', id, 'homey', id from homey_device
+      on conflict (source_system, source_device_id, target_system, target_device_id, valid_from) do nothing;
+  `);
+
   // eslint-disable-next-line no-use-before-define
   await migrateIngestEventToHypertable();
 }
@@ -335,6 +403,12 @@ function normalizeEvent(payload) {
 
   const valueNumber = typeof value === 'number' && Number.isFinite(value) ? value : null;
   const valueBoolean = typeof value === 'boolean' ? value : null;
+  const sourceSystem = String(payload.source_system || payload.sourceSystem || 'homey').trim();
+  const eventType = String(payload.event_type || payload.eventType || 'observation').trim();
+  if (!sourceSystem) throw new Error('source_system must not be empty');
+  if (!['observation', 'command'].includes(eventType)) {
+    throw new Error('event_type must be observation or command');
+  }
 
   return {
     eventTime,
@@ -349,6 +423,14 @@ function normalizeEvent(payload) {
     valueBoolean,
     unit: payload.unit || null,
     available: typeof payload.available === 'boolean' ? payload.available : null,
+    sourceSystem,
+    sourceInstance: payload.source_instance || payload.sourceInstance || null,
+    sourceEventId: payload.source_event_id || payload.sourceEventId || null,
+    authorSystem: payload.author_system || payload.authorSystem || null,
+    eventType,
+    causationId: payload.causation_id || payload.causationId || null,
+    correlationId: payload.correlation_id || payload.correlationId || null,
+    replayRunId: payload.replay_run_id || payload.replayRunId || null,
     payload,
   };
 }
@@ -807,8 +889,9 @@ async function insertEvent(client, event) {
   await client.query(`
     insert into ingest_event (
       event_time, homey_device_id, homey_zone_id, device_name, driver_id, device_class,
-      capability, value_json, value_number, value_boolean, unit, available, payload
-    ) values ($1, $2, $3, $4, $5, $6, $7, to_jsonb($8::json), $9, $10, $11, $12, $13::jsonb)
+      capability, value_json, value_number, value_boolean, unit, available, source_system,
+      source_instance, source_event_id, author_system, event_type, causation_id, correlation_id, replay_run_id, payload
+    ) values ($1, $2, $3, $4, $5, $6, $7, to_jsonb($8::json), $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb)
   `, [
     event.eventTime,
     event.homeyDeviceId,
@@ -822,14 +905,25 @@ async function insertEvent(client, event) {
     event.valueBoolean,
     event.unit,
     event.available,
+    event.sourceSystem,
+    event.sourceInstance,
+    event.sourceEventId,
+    event.authorSystem,
+    event.eventType,
+    event.causationId,
+    event.correlationId,
+    event.replayRunId,
     JSON.stringify(event.payload),
   ]);
+
+  if (event.eventType === 'command') return;
 
   await client.query(`
     insert into state_current (
       homey_device_id, capability, event_time, received_at, homey_zone_id, device_name,
-      driver_id, device_class, value_json, value_number, value_boolean, unit, available, payload
-    ) values ($1, $2, $3, now(), $4, $5, $6, $7, to_jsonb($8::json), $9, $10, $11, $12, $13::jsonb)
+      driver_id, device_class, value_json, value_number, value_boolean, unit, available, source_system,
+      source_instance, source_event_id, author_system, event_type, causation_id, correlation_id, replay_run_id, payload
+    ) values ($1, $2, $3, now(), $4, $5, $6, $7, to_jsonb($8::json), $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb)
     on conflict (homey_device_id, capability) do update set
       event_time = excluded.event_time,
       received_at = excluded.received_at,
@@ -842,6 +936,14 @@ async function insertEvent(client, event) {
       value_boolean = excluded.value_boolean,
       unit = excluded.unit,
       available = excluded.available,
+      source_system = excluded.source_system,
+      source_instance = excluded.source_instance,
+      source_event_id = excluded.source_event_id,
+      author_system = excluded.author_system,
+      event_type = excluded.event_type,
+      causation_id = excluded.causation_id,
+      correlation_id = excluded.correlation_id,
+      replay_run_id = excluded.replay_run_id,
       payload = excluded.payload
     where state_current.event_time <= excluded.event_time
   `, [
@@ -857,6 +959,14 @@ async function insertEvent(client, event) {
     event.valueBoolean,
     event.unit,
     event.available,
+    event.sourceSystem,
+    event.sourceInstance,
+    event.sourceEventId,
+    event.authorSystem,
+    event.eventType,
+    event.causationId,
+    event.correlationId,
+    event.replayRunId,
     JSON.stringify(event.payload),
   ]);
 }
@@ -985,27 +1095,45 @@ async function handleZigbeeRouteSnapshot(request, response) {
 }
 
 async function getZigbeeRouteHistory(requestUrl, response) {
-  const days = Math.max(1, Math.min(30, Number(requestUrl.searchParams.get('days') || 14)));
+  const days = Math.max(1, Math.min(30, Number(requestUrl.searchParams.get('days') || 7)));
   const params = [days];
   const [nodes, edges, layout] = await Promise.all([
     pool.query(`
-      select distinct on (node_id)
-        node_id as id,
-        label,
-        category,
-        node_type as type,
-        address_label,
-        zone,
-        zone_short,
-        last_seen,
-        available,
-        child_count,
-        payload,
-        bucket_start as last_observed_at,
-        coalesce(last_seen, bucket_start) < now() - interval '24 hours' as stale
-      from zigbee_route_node_observation
-      where bucket_start >= now() - ($1::int * interval '1 day')
-      order by node_id, bucket_start desc
+      with recent_nodes as (
+        select *
+        from zigbee_route_node_observation
+        where bucket_start >= now() - ($1::int * interval '1 day')
+      ),
+      latest_nodes as (
+        select distinct on (node_id) *
+        from recent_nodes
+        order by node_id, bucket_start desc
+      ),
+      latest_known_nodes as (
+        select distinct on (node_id) *
+        from recent_nodes
+        where coalesce(category, 'unknown') <> 'unknown'
+           or coalesce(label, '') !~ '^Ukendt '
+           or last_seen is not null
+        order by node_id, bucket_start desc
+      )
+      select latest.node_id as id,
+        coalesce(known.label, latest.label) as label,
+        coalesce(known.category, latest.category) as category,
+        coalesce(known.node_type, latest.node_type) as type,
+        coalesce(known.address_label, latest.address_label) as address_label,
+        coalesce(known.zone, latest.zone) as zone,
+        coalesce(known.zone_short, latest.zone_short) as zone_short,
+        coalesce(known.last_seen, latest.last_seen) as last_seen,
+        coalesce(known.available, latest.available) as available,
+        coalesce(known.child_count, latest.child_count) as child_count,
+        coalesce(known.payload, latest.payload) as payload,
+        latest.bucket_start as last_observed_at,
+        coalesce(known.last_seen, latest.last_seen, latest.bucket_start) < now() - interval '24 hours' as stale,
+        known.node_id is not null and coalesce(latest.category, 'unknown') = 'unknown' as removed
+      from latest_nodes latest
+      left join latest_known_nodes known on known.node_id = latest.node_id
+      order by latest.node_id
     `, params),
     pool.query(`
       with ranked_edges as (
@@ -1227,6 +1355,11 @@ async function handleHomeySync(request, response) {
         JSON.stringify(device),
         syncedAt,
       ]);
+      await client.query(`
+        insert into device_route (source_system, source_device_id, target_system, target_device_id)
+        values ('homey', $1, 'homey', $1)
+        on conflict (source_system, source_device_id, target_system, target_device_id, valid_from) do nothing
+      `, [id]);
       device.id = id;
       await upsertSnapshotCapabilityState(client, device, syncedAt);
     }
@@ -1274,6 +1407,24 @@ async function handleHomeySync(request, response) {
       }
     }
 
+    if (snapshot.logicVariables && typeof snapshot.logicVariables === 'object') {
+      const variables = getObjectEntries(snapshot.logicVariables);
+      const variableIds = variables.map(([id]) => id);
+
+      await client.query('delete from homey_logic_variable where not (id = any($1::text[]))', [variableIds]);
+
+      for (const [id, variable] of variables) {
+        await client.query(`
+          insert into homey_logic_variable (id, name, payload, synced_at)
+          values ($1, $2, $3::jsonb, $4)
+          on conflict (id) do update set
+            name = excluded.name,
+            payload = excluded.payload,
+            synced_at = excluded.synced_at
+        `, [id, variable.name || id, JSON.stringify(variable), syncedAt]);
+      }
+    }
+
     await client.query('commit');
   } catch (error) {
     await client.query('rollback');
@@ -1289,7 +1440,82 @@ async function handleHomeySync(request, response) {
     flows: Object.keys(snapshot.flows || {}).length,
     advancedFlows: Object.keys(snapshot.advancedFlows || {}).length,
     timers: Array.isArray(snapshot.timers) ? snapshot.timers.length : null,
+    logicVariables: snapshot.logicVariables && typeof snapshot.logicVariables === 'object'
+      ? Object.keys(snapshot.logicVariables).length
+      : null,
   });
+}
+
+async function getReplayRoute(requestUrl, response) {
+  const sourceSystem = requestUrl.searchParams.get('sourceSystem');
+  const sourceDeviceId = requestUrl.searchParams.get('deviceId');
+  const at = requestUrl.searchParams.get('at');
+  if (!sourceSystem || !sourceDeviceId || !at || Number.isNaN(Date.parse(at))) {
+    sendError(response, 400, 'sourceSystem, deviceId and at must be valid');
+    return;
+  }
+  const result = await pool.query(`
+    select source_system as "sourceSystem", source_device_id as "sourceDeviceId",
+      target_system as "targetSystem", target_device_id as "targetDeviceId",
+      valid_from as "validFrom", valid_to as "validTo", payload
+    from device_route
+    where source_system = $1 and source_device_id = $2
+      and valid_from <= $3 and (valid_to is null or valid_to > $3)
+    order by valid_from desc
+    limit 2
+  `, [sourceSystem, sourceDeviceId, at]);
+  if (result.rows.length !== 1) {
+    sendError(response, 409, `No unambiguous route for ${sourceSystem}:${sourceDeviceId} at ${at}`);
+    return;
+  }
+  sendJson(response, 200, { route: result.rows[0] });
+}
+
+async function putDeviceRoute(request, response) {
+  if (!isAuthorized(request)) {
+    sendError(response, 401, 'Unauthorized');
+    return;
+  }
+  const body = await readRequestBody(request);
+  const route = body ? JSON.parse(body) : {};
+  const sourceSystem = String(route.sourceSystem || route.source_system || '').trim();
+  const sourceDeviceId = String(route.sourceDeviceId || route.source_device_id || '').trim();
+  const targetSystem = String(route.targetSystem || route.target_system || '').trim();
+  const targetDeviceId = String(route.targetDeviceId || route.target_device_id || '').trim();
+  const validFrom = route.validFrom || route.valid_from || new Date().toISOString();
+  const validTo = route.validTo || route.valid_to || null;
+  if (!sourceSystem || !sourceDeviceId || !targetSystem || !targetDeviceId
+    || Number.isNaN(Date.parse(validFrom)) || (validTo && Number.isNaN(Date.parse(validTo)))) {
+    sendError(response, 400, 'source/target systems and device ids plus validFrom are required');
+    return;
+  }
+  if (validTo && Date.parse(validTo) <= Date.parse(validFrom)) {
+    sendError(response, 400, 'validTo must be after validFrom');
+    return;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query(`
+      update device_route set valid_to = $3
+      where source_system = $1 and source_device_id = $2
+        and valid_from < $3 and (valid_to is null or valid_to > $3)
+    `, [sourceSystem, sourceDeviceId, validFrom]);
+    await client.query(`
+      insert into device_route (
+        source_system, source_device_id, target_system, target_device_id, valid_from, valid_to, payload
+      ) values ($1, $2, $3, $4, $5, $6, $7::jsonb)
+      on conflict (source_system, source_device_id, target_system, target_device_id, valid_from) do update set
+        valid_to = excluded.valid_to, payload = excluded.payload
+    `, [sourceSystem, sourceDeviceId, targetSystem, targetDeviceId, validFrom, validTo, JSON.stringify(route.payload || {})]);
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+  sendJson(response, 202, { ok: true });
 }
 
 async function handlePriceIngest(request, response) {
@@ -1621,7 +1847,8 @@ async function getEnergyPrices(requestUrl, response) {
 async function getCurrentState(response) {
   const result = await pool.query(`
     select homey_device_id, capability, event_time, received_at, homey_zone_id, device_name,
-      driver_id, device_class, value_json as value, value_number, value_boolean, unit, available
+      driver_id, device_class, value_json as value, value_number, value_boolean, unit, available,
+      source_system, source_instance, source_event_id, author_system, event_type, causation_id, correlation_id, replay_run_id
     from state_current
     order by device_name nulls last, homey_device_id, capability
   `);
@@ -1629,13 +1856,14 @@ async function getCurrentState(response) {
 }
 
 async function getHomeySnapshot(response) {
-  const [zones, devices, states, flows, advancedFlows, timers] = await Promise.all([
+  const [zones, devices, states, flows, advancedFlows, timers, logicVariables] = await Promise.all([
     pool.query('select id, payload from homey_zone order by name nulls last, id'),
     pool.query('select id, payload from homey_device order by name nulls last, id'),
     pool.query('select * from state_current'),
     pool.query('select id, payload from homey_flow order by name nulls last, id'),
     pool.query('select id, payload from homey_advanced_flow order by name nulls last, id'),
     pool.query('select payload, synced_at from homey_timer order by name'),
+    pool.query('select id, payload from homey_logic_variable order by name, id'),
   ]);
   const statesByDevice = states.rows.reduce((result, state) => {
     result[state.homey_device_id] ||= {};
@@ -1672,6 +1900,7 @@ async function getHomeySnapshot(response) {
       timer.syncedAt = row.synced_at;
       return timer;
     }),
+    logicVariables: toMap(logicVariables.rows),
   });
 }
 
@@ -1693,9 +1922,11 @@ async function getEvents(requestUrl, response) {
   }
 
   const result = await pool.query(`
-    select event_time as t, value_json as v, device_name as "originName", 'homey:device:' || homey_device_id as "originUri"
+    select id, event_time as t, value_json as v, device_name as "originName", 'homey:device:' || homey_device_id as "originUri",
+      source_system as "sourceSystem", source_instance as "sourceInstance", source_event_id as "sourceEventId",
+      author_system as "authorSystem", event_type as "eventType", causation_id as "causationId", correlation_id as "correlationId", replay_run_id as "replayRunId"
     from ingest_event
-    where homey_device_id = $1 and capability = $2 ${sinceClause}
+    where homey_device_id = $1 and capability = $2 and event_type = 'observation' ${sinceClause}
     order by event_time
   `, params);
 
@@ -1733,7 +1964,7 @@ const server = http.createServer(async (request, response) => {
       await getHealth(response);
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/ingest/homey') {
+    if (request.method === 'POST' && (url.pathname === '/api/ingest' || url.pathname === '/api/ingest/homey')) {
       await handleIngest(request, response);
       return;
     }
@@ -1779,6 +2010,14 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/api/events') {
       await getEvents(url, response);
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/replay/routes') {
+      await getReplayRoute(url, response);
+      return;
+    }
+    if (request.method === 'PUT' && url.pathname === '/api/replay/routes') {
+      await putDeviceRoute(request, response);
       return;
     }
     if (request.method === 'GET' && url.pathname === '/api/energy/usage') {

@@ -1,0 +1,28 @@
+services:
+  replay-service:
+    build: .
+    container_name: homey-replay-service
+    restart: unless-stopped
+    expose:
+      - "8789"
+    networks:
+      - reverse-proxy
+    volumes:
+      - homey-replay-data:/data
+    environment:
+      PORT: 8789
+      HOMEY_URL: ${HOMEY_URL:-http://192.168.100.45}
+      HOMEY_TOKEN: ${HOMEY_TOKEN:?HOMEY_TOKEN must be set}
+      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-}
+      HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:-}
+      WINGMAN_URL: ${WINGMAN_URL:-http://homey-wingman-ingest-service:8788}
+      INGEST_TOKEN: ${INGEST_TOKEN:?INGEST_TOKEN must be set}
+      REPLAY_TOKEN: ${REPLAY_TOKEN:?REPLAY_TOKEN must be set}
+      REPLAY_ACTION_DELAY_MS: ${REPLAY_ACTION_DELAY_MS:-500}
+
+volumes:
+  homey-replay-data:
+
+networks:
+  reverse-proxy:
+    external: true
