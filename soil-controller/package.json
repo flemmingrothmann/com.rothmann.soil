@@ -1,0 +1,13 @@
+{
+  "name": "homey-wingman-soil-controller",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.14.1"
+  }
+}

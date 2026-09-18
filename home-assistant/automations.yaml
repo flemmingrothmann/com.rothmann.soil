@@ -1,0 +1,322 @@
+# Blueprint instances live here so Home Assistant can edit them from the UI.
+- id: myggeplante_soil_moisture_alarm
+  alias: Myggeplante jordfugt alarm
+  use_blueprint:
+    path: wingman/soil-moisture-alarm.yaml
+    input:
+      moisture_sensor: sensor.0xa4c1388b28d963ec_soil_moisture
+      threshold: input_number.myggeplante_water_threshold
+      water_alarm: input_boolean.myggeplante_water_alarm
+      alarm_topic: homeassistant/soil/myggeplante/alarm
+- id: terrasse_vaegpotte_soil_moisture_alarm
+  alias: Terrasse vægpotte jordfugt alarm
+  use_blueprint:
+    path: wingman/soil-moisture-alarm.yaml
+    input:
+      moisture_sensor: sensor.0xa4c138f35b60c6a1_soil_moisture
+      threshold: input_number.terrasse_vaegpotte_water_threshold
+      water_alarm: input_boolean.terrasse_vaegpotte_water_alarm
+      alarm_topic: homeassistant/soil/terrasse_vaegpotte/alarm
+- id: garage_vaegpotte_soil_moisture_alarm
+  alias: Garage vægpotte jordfugt alarm
+  use_blueprint:
+    path: wingman/soil-moisture-alarm.yaml
+    input:
+      moisture_sensor: sensor.0xa4c1389229cda157_soil_moisture
+      threshold: input_number.garage_vaegpotte_water_threshold
+      water_alarm: input_boolean.garage_vaegpotte_water_alarm
+      alarm_topic: homeassistant/soil/garage_vaegpotte/alarm
+- id: terrasse_potter_labelled_watering
+  alias: Terrasse potter vanding
+  description: >-
+    Vandsløjfe for enheder med labelen vanding-terasse-potter.
+  use_blueprint:
+    path: wingman/labelled-pot-watering.yaml
+    input:
+      watering_label: vanding_terasse_potter
+      valve: switch.0xe456acfffe60f0b5
+      water_alarms:
+        - input_boolean.myggeplante_water_alarm
+        - input_boolean.terrasse_vaegpotte_water_alarm
+      cycle_duration: input_number.terrasse_potter_cycle_duration
+      pause_duration: input_number.terrasse_potter_pause_duration
+      maximum_cycles: input_number.terrasse_potter_maximum_cycles
+      cycle_number: input_number.terrasse_potter_cycle_number
+      watering_error: input_boolean.terrasse_potter_watering_error
+      watering_forbidden: input_boolean.terrasse_potter_watering_forbidden
+      lifecycle_status: input_select.terrasse_potter_watering_status
+      capacity_busy: input_boolean.ha_watering_capacity_busy
+      capacity_acquire: script.ha_watering_capacity_acquire
+- id: flemmings_vaerelse_vaeglys_tryk
+  alias: Flemmings værelse væglys
+  description: >-
+    Styres af EnOcean PTM 21xZ/ZE-blueprintet. Kort tryk cykler lysstyrken,
+    langt tryk dæmper skiftevis ned og op.
+  use_blueprint:
+    path: chris-1243/PTM_21xZ_ZE.yaml
+    input:
+      controller:
+        - Lightbee Flemmings Værelse
+      button_1_pressed:
+        - choose:
+            - conditions:
+                - condition: state
+                  entity_id: light.0x94a081fffef21a4f
+                  state: "off"
+              sequence:
+                - action: light.turn_on
+                  target:
+                    entity_id: light.0x94a081fffef21a4f
+                  data:
+                    brightness_pct: 100
+            - conditions:
+                - condition: template
+                  value_template: >-
+                    {{ state_attr('light.0x94a081fffef21a4f', 'brightness') |
+                    int(0) > 165 }}
+              sequence:
+                - action: light.turn_on
+                  target:
+                    entity_id: light.0x94a081fffef21a4f
+                  data:
+                    brightness_pct: 30
+            - conditions:
+                - condition: template
+                  value_template: >-
+                    {{ state_attr('light.0x94a081fffef21a4f', 'brightness') |
+                    int(0) > 53 }}
+              sequence:
+                - action: light.turn_on
+                  target:
+                    entity_id: light.0x94a081fffef21a4f
+                  data:
+                    brightness_pct: 12
+            - conditions:
+                - condition: template
+                  value_template: >-
+                    {{ state_attr('light.0x94a081fffef21a4f', 'brightness') |
+                    int(0) > 17 }}
+              sequence:
+                - action: light.turn_on
+                  target:
+                    entity_id: light.0x94a081fffef21a4f
+                  data:
+                    brightness_pct: 2
+          default:
+            - action: light.turn_on
+              target:
+                entity_id: light.0x94a081fffef21a4f
+              data:
+                brightness_pct: 100
+      button_1_held:
+        - action: mqtt.publish
+          data:
+            topic: zigbee2mqtt/Væglys Flemmings kontor/set
+            payload: >-
+              {{ { 'brightness_move': 40 if is_state('input_boolean.flemmings_vaerelse_vaeglys_dim_up', 'on') else -40 } | tojson }}
+      button_1_released:
+        - action: mqtt.publish
+          data:
+            topic: zigbee2mqtt/Væglys Flemmings kontor/set
+            payload: '{{ { "brightness_move": 0 } | tojson }}'
+        - action: input_boolean.toggle
+          target:
+            entity_id: input_boolean.flemmings_vaerelse_vaeglys_dim_up
+      button_2_pressed:
+        - action: switch.turn_on
+          target:
+            entity_id: switch.0xa4c1381b6dfdd25b
+      button_2_held:
+        - action: switch.turn_off
+          target:
+            entity_id: switch.0xa4c1381b6dfdd25b
+      button_3_pressed:
+        - action: light.turn_off
+          target:
+            entity_id: light.0x94a081fffef21a4f
+      button_4_pressed:
+        - action: switch.turn_on
+          target:
+            entity_id: switch.0xa4c1382f0f7ca509
+      button_4_held:
+        - action: switch.turn_off
+          target:
+            entity_id: switch.0xa4c1382f0f7ca509
+      button_2_and_4_held:
+        - action: switch.turn_off
+          target:
+            entity_id:
+              - switch.0xa4c1381b6dfdd25b
+              - switch.0xa4c1382f0f7ca509
+- id: wingman_home_assistant_lights_ingest
+  alias: Wingman Home Assistant lys ingest
+  description: >-
+    Sender Home Assistant-lys til Wingman. Enheder med labelen wingman-ignore
+    springes over, så de kan forblive autoritative i Homey under migrering.
+  mode: queued
+  triggers:
+    - trigger: event
+      event_type: state_changed
+  conditions:
+    - condition: template
+      value_template: >-
+        {% set entity_id = trigger.event.data.entity_id %}
+        {{ entity_id.startswith('light.') and
+        device_id(entity_id) not in label_devices('wingman_ignore') }}
+  actions:
+    - action: mqtt.publish
+      data:
+        topic: homeassistant/wingman/light/state
+        payload: >-
+          {{ {
+            'entity_id': trigger.event.data.entity_id,
+            'name': state_attr(trigger.event.data.entity_id, 'friendly_name') or trigger.event.data.entity_id,
+            'zone_id': area_id(trigger.event.data.entity_id) or 'home_assistant',
+            'zone_name': area_name(trigger.event.data.entity_id) or 'Home Assistant',
+            'state': trigger.event.data.new_state.state,
+            'brightness': trigger.event.data.new_state.attributes.brightness | default(0),
+            'time': now().isoformat()
+          } | tojson }}
+- id: viktualieskab_lys_folger_laage
+  alias: Viktualieskab lys følger låge
+  description: Tænder lyset når lågen åbnes og slukker det når lågen lukkes.
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.0xf044d3fffe1a70e4_contact
+      to: "on"
+      id: open
+    - trigger: state
+      entity_id: binary_sensor.0xf044d3fffe1a70e4_contact
+      to: "off"
+      id: closed
+  actions:
+    - choose:
+        - conditions:
+            - condition: trigger
+              id: open
+          sequence:
+            - action: switch.turn_on
+              target:
+                entity_id: switch.0xc02cedfffeec86d7
+      default:
+        - action: switch.turn_off
+          target:
+            entity_id: switch.0xc02cedfffeec86d7
+- id: natlys_zone_slukker_flemmings_vaeglys
+  alias: Natlys Zone slukker Flemmings væglys
+  description: Slukker Flemmings væglys, når Natlys Zone slukkes om natten.
+  triggers:
+    - trigger: state
+      entity_id: light.natlys_zone
+      to: "off"
+  conditions:
+    - condition: time
+      after: "21:00:00"
+      before: "06:00:00"
+  actions:
+    - action: light.turn_off
+      target:
+        entity_id: light.0x94a081fffef21a4f
+- id: vitrine_og_skaenk_aftenforloeb
+  alias: Vitrine og Skænk aftenforløb
+  description: >-
+    Tænder ved golden hour, blusser op over 30 minutter, toner fra varm hvid til
+    rød ved solnedgang og derefter til svag blå en time efter borgerligt mørke.
+  mode: single
+  triggers:
+    - trigger: numeric_state
+      entity_id: sun.sun
+      attribute: elevation
+      below: 6
+  conditions:
+    - condition: sun
+      before: sunset
+    - condition: state
+      entity_id: input_boolean.vitrine_og_skaenk_manuel_farve
+      state: "off"
+  actions:
+    - action: light.turn_on
+      continue_on_error: true
+      target:
+        entity_id:
+          - light.stue_skaenk
+          - light.stue_vitrine
+      data:
+        brightness_pct: 5
+        rgb_color: [255, 177, 110]
+    - repeat:
+        while:
+          - condition: numeric_state
+            entity_id: sun.sun
+            attribute: elevation
+            above: -6
+          - condition: state
+            entity_id: input_boolean.vitrine_og_skaenk_manuel_farve
+            state: "off"
+        sequence:
+          - variables:
+              color_phase: >-
+                {{ [0, [1, (6 - state_attr('sun.sun', 'elevation') | float(6)) / 6] | min] | max }}
+              brightness_pct: >-
+                {{ [60, 5 + (repeat.index * 55 / 60)] | min | round(0) }}
+          - action: light.turn_on
+            continue_on_error: true
+            target:
+              entity_id:
+                - light.stue_skaenk
+                - light.stue_vitrine
+            data:
+              brightness_pct: "{{ brightness_pct }}"
+              rgb_color: >-
+                {% set p = color_phase | float %}
+                {{ [255, (177 - (122 * p)) | round(0), (110 - (85 * p)) | round(0)] }}
+          - delay:
+              seconds: 30
+    - repeat:
+        count: 120
+        sequence:
+          - condition: state
+            entity_id: input_boolean.vitrine_og_skaenk_manuel_farve
+            state: "off"
+          - variables:
+              phase: "{{ repeat.index / 120 }}"
+          - action: light.turn_on
+            continue_on_error: true
+            target:
+              entity_id:
+                - light.stue_skaenk
+                - light.stue_vitrine
+            data:
+              brightness_pct: "{{ (60 - (58 * (phase | float))) | round(0) }}"
+              rgb_color: >-
+                {% set p = phase | float %}
+                {{ [(255 - (210 * p)) | round(0), (55 + (15 * p)) | round(0), (25 + (230 * p)) | round(0)] }}
+          - delay:
+              seconds: 30
+- id: vitrine_og_skaenk_manuel_farve_overstyring
+  alias: Skænk og Vitrine manuel farve overstyring
+  description: >-
+    Pauser aften- og natramper, når en bruger ændrer Skænk eller Vitrine i Home Assistant.
+  triggers:
+    - trigger: event
+      event_type: state_changed
+  conditions:
+    - condition: template
+      value_template: >-
+        {{ trigger.event.data.entity_id in ['light.stue_skaenk', 'light.stue_vitrine'] and
+        trigger.event.data.new_state is not none and
+        trigger.event.data.new_state.context.user_id is not none }}
+  actions:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.vitrine_og_skaenk_manuel_farve
+- id: vitrine_og_skaenk_nulstiller_manuelt_override
+  alias: Skænk og Vitrine nulstiller manuel farve
+  description: Gør den automatiske lysprofil klar igen hver nat klokken 03:00.
+  triggers:
+    - trigger: time
+      at: "03:00:00"
+  actions:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.vitrine_og_skaenk_manuel_farve

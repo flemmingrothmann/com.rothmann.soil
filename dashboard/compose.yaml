@@ -7,13 +7,22 @@ services:
       - "8787"
     networks:
       - reverse-proxy
+      - wingman
     volumes:
       - soil-dashboard-data:/data
     environment:
       HOMEY_URL: ${HOMEY_URL:-http://192.168.100.45}
       HOMEY_TOKEN: ${HOMEY_TOKEN}
+      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-http://192.168.100.66:8123}
+      HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:?HOME_ASSISTANT_TOKEN must be set}
       INGEST_TOKEN: ${INGEST_TOKEN}
       WINGMAN_URL: ${WINGMAN_URL:-http://homey-wingman-ingest-service:8788}
+      SOIL_CONTROLLER_URL: ${SOIL_CONTROLLER_URL:-http://homey-wingman-soil-controller:8790}
+      REPLAY_URL: ${REPLAY_URL:-http://homey-replay-service:8789}
+      REPLAY_TOKEN: ${REPLAY_TOKEN:?REPLAY_TOKEN must be set}
+      PEUGEOT_URL: ${PEUGEOT_URL:-http://peugeot-car-controller:5000}
+      PEUGEOT_VIN: ${PEUGEOT_VIN:-}
+      PEUGEOT_MODEL: ${PEUGEOT_MODEL:-Peugeot}
       HOMEY_APP_ID: com.rothmann.soil
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?DASHBOARD_PASSWORD must be set}
       WATERING_FORBIDDEN_VARIABLE_ID: ${WATERING_FORBIDDEN_VARIABLE_ID:-5a2a34fd-8d2f-4c7d-b076-b1bb41e3a41f}
@@ -24,3 +33,6 @@ volumes:
 networks:
   reverse-proxy:
     external: true
+  wingman:
+    external: true
+    name: ingest-service_default

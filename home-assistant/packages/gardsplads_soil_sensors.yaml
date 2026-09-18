@@ -1,0 +1,14 @@
+input_number:
+  garage_vaegpotte_water_threshold:
+    name: Garage vægpotte jordfugtgrænse
+    icon: mdi:water-percent-alert
+    min: 0
+    max: 90
+    step: 1
+    unit_of_measurement: '%'
+    mode: box
+
+input_boolean:
+  garage_vaegpotte_water_alarm:
+    name: Garage vægpotte vandalarm
+    icon: mdi:water-alert

@@ -7,10 +7,13 @@ const REFRESH_INTERVAL_MS_BY_VIEW = {
   home: 3000,
   soil: 3000,
   watering: 10000,
+  circuits: 0,
   contact: 3000,
   motion: 3000,
   lights: 3000,
+  replay: 3000,
   energy: 5 * 60 * 1000,
+  vehicle: 5 * 60 * 1000,
 };
 const GRAPH_HISTORY_DAYS = 7;
 const GRAPH_AXIS_WIDTH = 34;
@@ -26,15 +29,21 @@ const ENERGY_PERIOD_LABELS = {
   month: 'Måned',
   billing: 'Faktura',
 };
-const VIEWS = ['home', 'soil', 'watering', 'contact', 'motion', 'lights', 'energy'];
+const VIEWS = ['home', 'soil', 'watering', 'circuits', 'contact', 'motion', 'lights', 'replay', 'energy', 'vehicle'];
 let nextRefreshAt = 0;
 let refreshTimer = null;
 let latestDashboard = null;
 let graphDevices = [];
 let activeView = 'home';
+let intervalDialogValveId = null;
+const wateringDurationOverrides = new Map();
+const wateringMaxCycleOverrides = new Map();
+const wateringErrorOverrides = new Map();
 let activeEnergyPeriod = 'day';
 let activeEnergyPeriodOffset = 0;
 let thresholdDialogDeviceId = null;
+let replayConfigDirty = false;
+let replayRunning = false;
 
 function getViewHash(view) {
   return view === 'home' ? '' : `#${view}`;
@@ -95,6 +104,18 @@ function formatUpdatedAt(value) {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+function formatDataAge(milliseconds) {
+  if (typeof milliseconds !== 'number') return 'Ukendt';
+  const minutes = Math.max(0, Math.floor(milliseconds / 60000));
+  if (minutes < 1) return 'Under 1 minut';
+  if (minutes < 60) return `${minutes} min.`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) return remainingMinutes ? `${hours} t ${remainingMinutes} min.` : `${hours} t`;
+  const days = Math.floor(hours / 24);
+  return `${days} dage`;
 }
 
 function formatEnergyRange(from, to) {
@@ -395,6 +416,25 @@ function renderIssueCounters(device) {
   </div>`;
 }
 
+function getSignalStatus(linkQuality) {
+  const value = Number(linkQuality);
+  if (!Number.isFinite(value)) return null;
+  if (value <= 30) return { level: 1, label: 'Dårlig dækning' };
+  if (value <= 60) return { level: 2, label: 'Svag dækning' };
+  if (value <= 100) return { level: 3, label: 'Rimelig dækning' };
+  if (value <= 160) return { level: 4, label: 'God dækning' };
+  return { level: 5, label: 'Meget god dækning' };
+}
+
+function renderSignalIndicator(device) {
+  const linkQualityIngested = device.values?.linkQualityIngested ?? device.linkQualityIngested;
+  if (linkQualityIngested !== true) return '';
+  const linkQuality = device.values?.linkQuality ?? device.linkQuality;
+  const signal = getSignalStatus(linkQuality);
+  if (!signal) return '';
+  return `<span class="signal-dot level-${signal.level}" title="${escapeHtml(signal.label)}: LQI ${Math.round(linkQuality)}" aria-label="${escapeHtml(signal.label)}: LQI ${Math.round(linkQuality)}">LQI ${Math.round(linkQuality)}</span>`;
+}
+
 function renderSensor(device, showZoneInCard = true) {
   const graphIndex = graphDevices.push(device) - 1;
   const alarmStats = device.waterAlarmStats || { monthlyActivations: 0, periodDays: 30, zoneTopScorer: false };
@@ -441,7 +481,7 @@ function renderSensor(device, showZoneInCard = true) {
     <div class="topline">
       <div>
         ${showZoneInCard ? `<div class="zone">${escapeHtml(formatZonePath(device))}</div>` : ''}
-        <div class="name">${escapeHtml(device.name)}</div>
+        <div class="name">${escapeHtml(device.name)}${renderSignalIndicator(device)}</div>
         ${alarmStatsMarkup}
         ${renderIssueCounters(device)}
       </div>
@@ -475,8 +515,15 @@ function updateRefreshNote() {
   element.textContent = getRefreshNote();
 }
 
-function scheduleRefresh() {
+function scheduleRefresh(enabled = true) {
   if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
+
+  if (!enabled) {
+    nextRefreshAt = 0;
+    updateRefreshNote();
+    return;
+  }
 
   nextRefreshAt = Date.now() + (REFRESH_INTERVAL_MS_BY_VIEW[activeView] || 3000);
   updateRefreshNote();
@@ -487,7 +534,7 @@ function scheduleRefresh() {
     }
 
     if (Date.now() >= nextRefreshAt) {
-      if (isThresholdDialogOpen()) {
+      if (isThresholdDialogOpen() || replayConfigDirty) {
         nextRefreshAt = Date.now() + (REFRESH_INTERVAL_MS_BY_VIEW[activeView] || 3000);
         updateRefreshNote();
         return;
@@ -503,13 +550,14 @@ function scheduleRefresh() {
 function setActiveTab() {
   document.getElementById('home-tab').classList.toggle('active', activeView === 'home');
   document.getElementById('soil-tab').classList.toggle('active', activeView === 'soil');
-  document.getElementById('watering-tab').classList.toggle('active', activeView === 'watering');
+  document.getElementById('watering-tab').classList.toggle('active', ['watering', 'circuits'].includes(activeView));
   document.getElementById('contact-tab').classList.toggle('active', activeView === 'contact');
   document.getElementById('motion-tab').classList.toggle('active', activeView === 'motion');
   document.getElementById('lights-tab').classList.toggle('active', activeView === 'lights');
   document.getElementById('energy-tab').classList.toggle('active', activeView === 'energy');
-  document.querySelector('.summary').hidden = activeView === 'home';
-  document.getElementById('watering-mode-card').hidden = !['soil', 'watering'].includes(activeView);
+  document.getElementById('vehicle-tab').classList.toggle('active', activeView === 'vehicle');
+  document.querySelector('.summary').hidden = ['home', 'replay'].includes(activeView);
+  document.getElementById('watering-mode-card').hidden = !['soil', 'watering', 'circuits'].includes(activeView);
 }
 
 function setSummaryLabels(deviceLabel, alarmLabel, offlineLabel) {
@@ -814,6 +862,7 @@ function renderEnergyDashboard(data) {
 
 function renderOverviewCard(card) {
   if (card.id === 'electricity') return renderElectricityCard(card);
+  if (card.id === 'vehicle') return renderVehicleOverviewCard(card);
 
   const statusItems = card.statusItems || ['Ingen aktuelle afvigelser'];
   const status = `<ol class="dashboard-activities">${statusItems.map(renderOverviewStatus).join('')}</ol>`;
@@ -826,6 +875,71 @@ function renderOverviewCard(card) {
     </span>
     ${status}
   </button>`;
+}
+
+function renderVehicleOverviewCard(card) {
+  const vehicle = card.vehicle || {};
+  const freshnessClass = ['fresh', 'aging', 'old'].includes(vehicle.freshness) ? vehicle.freshness : 'old';
+  const age = formatDataAge(vehicle.ageMs);
+  return `<button class="dashboard-card vehicle-overview ${freshnessClass}" type="button" data-view="vehicle">
+    <span class="dashboard-card-kicker">${escapeHtml(card.subtitle)}</span>
+    <strong>${escapeHtml(vehicle.name || card.title)}</strong>
+    <span class="dashboard-card-metrics">
+      <span class="metric"><b>${formatValue(card.totals?.[0]?.value, '%')}</b>SOC</span>
+      <span class="metric"><b>${formatValue(card.totals?.[1]?.value, ' km')}</b>Rækkevidde</span>
+      <span class="metric vehicle-age-metric"><b>${escapeHtml(age)}</b>Dataalder</span>
+    </span>
+    <span class="dashboard-activities"><span>${escapeHtml(card.statusItems?.[0] || 'Dataalder ukendt')}</span></span>
+  </button>`;
+}
+
+function renderVehicleDashboard(data) {
+  latestDashboard = null;
+  graphDevices = [];
+  setActiveTab();
+  setDashboardTitle('Peugeot');
+  setSummaryThirdCardVisible(true);
+  setSummaryLabels('SOC', 'Rækkevidde', 'Ladning');
+  setUpdatedAt(data.generatedAt);
+
+  const { vehicle } = data;
+  document.getElementById('total-devices').textContent = vehicle?.batteryLevel === null ? '-' : `${vehicle?.batteryLevel ?? '-'} %`;
+  document.getElementById('total-alarms').textContent = vehicle?.rangeKm === null ? '-' : `${vehicle?.rangeKm ?? '-'} km`;
+  document.getElementById('total-offline').textContent = vehicle?.charging ? 'Aktiv' : 'Nej';
+
+  if (!data.configured) {
+    document.getElementById('content').innerHTML = '<section class="empty">MyPeugeot er installeret, men bilen mangler login og VIN på Hubert.</section>';
+    return;
+  }
+
+  const freshness = {
+    fresh: { label: 'Frisk', detail: 'Under 1 time', className: 'fresh' },
+    aging: { label: 'Ikke helt frisk', detail: '1-6 timer', className: 'aging' },
+    old: { label: 'Gammel', detail: 'Over 6 timer', className: 'old' },
+  }[vehicle.freshness] || { label: 'Ukendt', detail: 'Ingen datatid', className: 'old' };
+  document.getElementById('content').innerHTML = `<section class="vehicle-stage">
+    <article class="vehicle-card ${freshness.className}">
+      <div class="vehicle-heading">
+        <div><span class="dashboard-card-kicker">MyPeugeot</span><h2>${escapeHtml(vehicle.name)}</h2></div>
+      </div>
+      <div class="vehicle-freshness-box ${freshness.className}">
+        <span>Datastatus</span><strong>${freshness.label}</strong><small>${freshness.detail} · ${formatDataAge(vehicle.ageMs)}</small>
+      </div>
+      <div class="vehicle-battery"><strong>${formatValue(vehicle.batteryLevel, '%')}</strong><span><i style="width:${Math.max(0, Math.min(100, vehicle.batteryLevel || 0))}%"></i></span></div>
+      <div class="vehicle-facts">
+        <div><strong>${formatValue(vehicle.rangeKm, ' km')}</strong><span>Rækkevidde</span></div>
+        <div><strong>${vehicle.charging ? 'Lader' : getVehicleConnectionStatus(vehicle)}</strong><span>Ladestatus</span></div>
+        <div><strong>${formatDataAge(vehicle.ageMs)}</strong><span>Dataalder</span></div>
+        <div><strong>${formatTime(vehicle.updatedAt)}</strong><span>Rapporteret af bilen</span></div>
+        <div><strong>${formatTime(vehicle.fetchedAt || data.generatedAt)}</strong><span>Hentet af Hubert</span></div>
+      </div>
+      <p>Frisk: under 1 time. Ikke helt frisk: 1-6 timer. Gammel: over 6 timer. En sovende bil kan vise ældre værdier uden at integrationen fejler.</p>
+    </article>
+  </section>`;
+}
+
+function getVehicleConnectionStatus(vehicle) {
+  return vehicle.plugged ? 'Tilsluttet' : 'Ikke tilsluttet';
 }
 
 function renderOverviewDashboard(data) {
@@ -847,7 +961,7 @@ function renderOverviewDashboard(data) {
   </section>`;
 }
 
-function renderOkSensorsByZone(devices) {
+function renderSensorsByZone(devices) {
   if (devices.length === 0) return '';
 
   const zones = devices.reduce((result, device) => {
@@ -859,7 +973,7 @@ function renderOkSensorsByZone(devices) {
     return result;
   }, {});
 
-  return `<section><h2 class="section-title">OK sensorer</h2>${Object.entries(zones).map(([zonePath, zoneDevices]) => (
+  return `<section><h2 class="section-title">Sensorer efter zone</h2>${Object.entries(zones).map(([zonePath, zoneDevices]) => (
     `<h3 class="zone-title">${escapeHtml(formatZonePath({ zonePathText: zonePath }))}</h3>`
       + `<div class="grid">${zoneDevices.map((device) => renderSensor(device, false)).join('')}</div>`
   )).join('')}</section>`;
@@ -887,7 +1001,6 @@ function renderSoilDashboard(data) {
   const maintenanceDevices = devices.filter((device) => !device.values.waterAlarm && !device.error && !(device.offline || !device.live) && device.needsMaintenance);
   const offlineDevices = devices.filter((device) => !device.values.waterAlarm && !device.error && (device.offline || !device.live));
   const errorDevices = devices.filter((device) => !device.values.waterAlarm && device.error);
-  const normalDevices = devices.filter((device) => !device.needsAction);
 
   document.getElementById('total-devices').textContent = data.totals.devices;
   document.getElementById('total-alarms').textContent = data.totals.alarms;
@@ -905,7 +1018,7 @@ function renderSoilDashboard(data) {
     + renderSection('Flyt/rens sensorer', maintenanceDevices)
     + renderSection('Offline sensorer', offlineDevices)
     + renderSection('Sensorfejl i Homey', errorDevices)
-    + renderOkSensorsByZone(normalDevices);
+    + renderSensorsByZone(devices);
   renderGraphs();
 }
 
@@ -944,13 +1057,26 @@ function renderSessions(valve) {
 function renderWateringFlow(valve) {
   if (!valve.wateringFlow) return '';
 
-  const { timer, timerName, name } = valve.wateringFlow;
+  const {
+    status,
+    timer,
+    timerName,
+    name,
+  } = valve.wateringFlow;
   const timerLine = timerName
     ? `<span>Timer: ${escapeHtml(timerName)}${timer?.running ? ` · ${formatMilliseconds(timer.remainingMs)} tilbage` : ''}</span>`
     : '<span>Ingen timer fundet</span>';
-  const active = timer?.running ? '<strong>Vandingsforløb i gang</strong>' : '<strong>Flow koblet</strong>';
+  const statusText = {
+    watering: 'Vander nu',
+    closing: 'Lukker ventil',
+    waiting_result: 'Afventer resultat',
+    closing_error: 'Ventil lukker ikke',
+    cycle_limit: 'Maks. cyklusser nået',
+    idle: 'Lukket',
+  }[status] || (timer?.running ? 'Vandingsforløb i gang' : 'Flow koblet');
+  const active = status && status !== 'idle' ? `<strong>${statusText}</strong>` : `<strong>${statusText}</strong>`;
 
-  return `<div class="watering-flow${timer?.running ? ' active' : ''}">
+  return `<div class="watering-flow${valve.wateringActive ? ' active' : ''}">
     ${active}
     <span>Flow: ${escapeHtml(name)}</span>
     ${timerLine}
@@ -959,19 +1085,76 @@ function renderWateringFlow(valve) {
 
 function renderWateringValve(valve) {
   let status = '<span class="live-dot">Lukket</span>';
-  if (valve.on) {
-    status = '<span class="badge ok">Ventil åben</span>';
-  } else if (valve.wateringActive) {
-    status = '<span class="badge ok">Afventer</span>';
+  if (valve.haWatering?.forbidden) {
+    status = '<span class="badge forbidden">Vanding forbudt</span>';
+  } else if (valve.on) {
+    status = '<span class="badge ok">Vander nu</span>';
+  } else if (valve.wateringFlow?.status === 'watering' || valve.haWatering?.status === 'watering') {
+    status = '<span class="badge ok">Vandingsforløb kører</span>';
+  } else if (valve.wateringFlow?.status === 'waiting_result' || valve.haWatering?.status === 'waiting_result') {
+    status = '<span class="badge ok">Afventer resultat</span>';
+  } else if (valve.wateringFlow?.status === 'closing') {
+    status = '<span class="badge ok">Lukker ventil</span>';
+  } else if (valve.wateringFlow?.status === 'closing_error') {
+    status = '<span class="badge action">Ventil lukker ikke</span>';
+  } else if (valve.wateringFlow?.status === 'cycle_limit' || valve.haWatering?.status === 'cycle_limit') {
+    status = '<span class="badge action">Maks. cyklusser nået</span>';
   }
   const error = valve.error ? `<p class="valve-error">Insights-fejl: ${escapeHtml(valve.error)}</p>` : '';
   const automationError = valve.automationError ? `<p class="valve-error">Flow-fejl: ${escapeHtml(valve.automationError)}</p>` : '';
+  const syncedCycleDuration = valve.wateringFlow?.durationVariable?.value;
+  const cycleDuration = wateringDurationOverrides.get(valve.id) ?? syncedCycleDuration;
+  if (wateringDurationOverrides.has(valve.id) && syncedCycleDuration === cycleDuration) {
+    wateringDurationOverrides.delete(valve.id);
+  }
+  const syncedMaxCycles = valve.wateringFlow?.maxCycleVariable?.value;
+  const maxCycles = wateringMaxCycleOverrides.get(valve.id) ?? syncedMaxCycles;
+  if (wateringMaxCycleOverrides.has(valve.id) && syncedMaxCycles === maxCycles) {
+    wateringMaxCycleOverrides.delete(valve.id);
+  }
+  const intervalFact = valve.wateringFlow?.durationVariable
+    ? `<div class="fact interval-fact">
+      <button class="interval-action" type="button"
+        data-watering-valve-id="${escapeHtml(valve.id)}"
+        data-watering-setting="duration"
+        data-cycle-duration="${escapeHtml(cycleDuration)}"
+        ${Number.isInteger(maxCycles) ? `data-max-cycles="${escapeHtml(maxCycles)}"` : ''}>${formatDuration(cycleDuration)}</button>
+      Interval
+    </div>`
+    : '';
+  const maxCyclesFact = valve.wateringFlow?.maxCycleVariable
+    ? `<div class="fact interval-fact">
+      <button class="interval-action" type="button"
+        data-watering-valve-id="${escapeHtml(valve.id)}"
+        data-watering-setting="max-cycles"
+        data-cycle-duration="${escapeHtml(cycleDuration)}"
+        data-max-cycles="${escapeHtml(maxCycles)}">${escapeHtml(maxCycles)}</button>
+      Maks. cyklusser
+    </div>`
+    : '';
+  const haWateringFacts = valve.haWatering ? `<div class="fact"><strong>${escapeHtml(valve.haWatering.status || 'idle')}</strong>Status</div>
+    <div class="fact"><strong>${escapeHtml(valve.haWatering.cycleNumber)}</strong>Cyklus nu</div>
+    <div class="fact"><strong>${escapeHtml(valve.haWatering.maximumCycles)}</strong>Maks. cyklusser</div>
+    ` : '';
+  const forbiddenControl = valve.haWatering ? `<button class="device-action" type="button" data-watering-forbidden="${escapeHtml(valve.id)}" data-watering-forbidden-value="${valve.haWatering.forbidden ? 'true' : 'false'}">${valve.haWatering.forbidden ? 'Tillad vanding' : 'Forbyd vanding'}</button>` : '';
+  const syncedWateringError = valve.wateringFlow?.errorVariable?.value === true;
+  const wateringError = wateringErrorOverrides.get(valve.id) ?? syncedWateringError;
+  if (wateringErrorOverrides.has(valve.id) && syncedWateringError === false) {
+    wateringErrorOverrides.delete(valve.id);
+  }
+  const wateringErrorState = (wateringError || valve.haWatering?.error)
+    ? `<div class="watering-error" role="alert">
+      <strong>Vandingsfejl</strong>
+      <span>Vandingen er stoppet. Nulstil fejlen for at lade automatikken genstarte, hvis der stadig er vandingsbehov.</span>
+      <button class="device-action" type="button" data-watering-restart="${escapeHtml(valve.id)}">Nulstil og genstart</button>
+    </div>`
+    : '';
 
-  return `<article class="sensor valve${valve.wateringActive ? ' active' : ''}${valve.error ? ' offline' : ''}">
+  return `<article class="sensor valve${valve.wateringActive ? ' active' : ''}${valve.wateringNeedsAttention ? ' action' : ''}${valve.haWatering?.forbidden ? ' forbidden' : ''}${valve.error ? ' offline' : ''}">
     <div class="topline">
       <div>
         <div class="zone">${escapeHtml(formatZonePath(valve))}</div>
-        <div class="name">${escapeHtml(valve.name)}</div>
+        <div class="name">${escapeHtml(valve.name)}${renderSignalIndicator(valve)}</div>
       </div>
       ${status}
     </div>
@@ -982,11 +1165,16 @@ function renderWateringValve(valve) {
       <div class="fact"><strong>${valve.totals.sessions.toLocaleString('da-DK')}</strong>Vandinger</div>
       <div class="fact"><strong>${formatDuration(valve.totals.minutes)}</strong>Varighed</div>
       <div class="fact"><strong>${formatTime(valve.lastSession?.startedAt)}</strong>Senest</div>
+      ${intervalFact}
+      ${maxCyclesFact}
+      ${haWateringFacts}
       <div class="fact"><strong>${formatDecimal(valve.currentFlowLitersPerMinute, ' L/min')}</strong>Flow nu</div>
       <div class="fact"><strong>${formatDecimal(valve.currentMeterM3, ' m³', 3)}</strong>Måler</div>
       <div class="fact"><strong>${formatValue(valve.battery, '%')}</strong>Batteri</div>
     </div>
     ${renderWateringFlow(valve)}
+    ${wateringErrorState}
+    ${forbiddenControl}
     ${renderWaterBars(valve)}
     <h3 class="sessions-title">Seneste vandinger</h3>
     ${renderSessions(valve)}
@@ -1009,13 +1197,123 @@ function renderWateringDashboard(data) {
   setUpdatedAt(data.generatedAt);
 
   const content = document.getElementById('content');
+  const configurator = '<section class="watering-circuit-launch"><button type="button" class="device-action" data-watering-circuit-page>Administrér vandingskredse</button></section>';
   if (data.valves.length === 0) {
-    content.innerHTML = '<section class="empty">Ingen vandingsventiler fundet.</section>';
+    content.innerHTML = `${configurator}<section class="empty">Ingen vandingsventiler fundet.</section>`;
     return;
   }
 
   const errors = data.totals.errors > 0 ? `<section class="error">${data.totals.errors} ventil(er) kunne ikke hente fuld Insights-historik.</section>` : '';
-  content.innerHTML = `${errors}<section><h2 class="section-title">Vandingsventiler</h2><div class="grid">${data.valves.map(renderWateringValve).join('')}</div></section>`;
+  content.innerHTML = `${configurator}${errors}<section><h2 class="section-title">Vandingsventiler</h2><div class="grid">${data.valves.map(renderWateringValve).join('')}</div></section>`;
+}
+
+function showWateringCircuitResult(message, actions = '') {
+  const result = document.getElementById('watering-circuit-result');
+  result.innerHTML = `<p>${escapeHtml(message)}</p>${actions}`;
+  result.hidden = false;
+}
+
+function lockWateringCircuitLabel(label) {
+  const form = document.getElementById('watering-circuit-form');
+  form.hidden = true;
+  form.insertAdjacentHTML('afterend', `<div id="watering-circuit-locked" class="watering-circuit-locked"><strong>Vandingslabel: ${escapeHtml(label)}</strong><button type="button" data-watering-circuit-new>Ny label</button></div>`);
+}
+
+function resetWateringCircuitLabel() {
+  document.getElementById('watering-circuit-locked')?.remove();
+  const form = document.getElementById('watering-circuit-form');
+  form.hidden = false;
+  form.elements.label.value = '';
+  form.querySelector('button').disabled = false;
+  document.getElementById('watering-circuit-result').hidden = true;
+  form.elements.label.focus();
+}
+
+function loadWateringCircuitPage() {
+  setActiveView('circuits');
+  setActiveTab();
+  setDashboardTitle('Vandingskredse');
+  setSummaryThirdCardVisible(false);
+  setSummaryLabels('Kredse', 'Fejl', '');
+  document.getElementById('total-devices').textContent = '-';
+  document.getElementById('total-alarms').textContent = '-';
+  setUpdatedAt(null);
+  document.getElementById('content').innerHTML = `<section class="watering-circuit-page">
+    <button type="button" class="back-button" data-watering-circuit-back>Tilbage til vanding</button>
+    <p class="threshold-kicker">Administrer vandingskredse</p>
+    <h2>HA-vandingskreds</h2>
+    <p>Indtast én HA-label. Den skal mærke præcis én ventil og mindst én jordfugtsensor.</p>
+    <form id="watering-circuit-form"><label for="watering-circuit-label">Vandingslabel</label><input id="watering-circuit-label" name="label" maxlength="60" placeholder="fx vanding-terasse-potter" required><button type="submit">Kontrollér</button></form>
+    <div id="watering-circuit-result" class="watering-circuit-result" hidden></div>
+  </section>`;
+  document.getElementById('watering-circuit-label').focus();
+  scheduleRefresh(false);
+}
+
+async function configureWateringCircuit(action, label, confirm = false) {
+  const response = await fetch(`/api/watering-circuits/${action}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label, confirm }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+async function planWateringCircuit(form) {
+  const label = form.elements.label.value.trim();
+  const button = form.querySelector('button');
+  button.disabled = true;
+  try {
+    const plan = await configureWateringCircuit('plan', label);
+    const sensors = plan.sensors.map((sensor) => sensor.name).join(', ');
+    lockWateringCircuitLabel(label);
+    if (plan.mode === 'managed') {
+      showWateringCircuitResult(`Administreret kreds: Ventil: ${plan.valve.name}. Potter: ${sensors}.`, `<button type="button" data-watering-circuit-apply="${escapeHtml(label)}">Reparer</button> <button type="button" data-watering-circuit-remove="${escapeHtml(label)}">Slet</button>`);
+      return;
+    }
+    if (plan.mode === 'legacy') {
+      showWateringCircuitResult(`Manuel kreds: Ventil: ${plan.valve.name}. Potter: ${sensors}. Manuelle pakker: ${plan.legacyPackageFiles.join(', ') || 'ikke fundet'}.`, `<button type="button" data-watering-circuit-migrate="${escapeHtml(label)}">Overtag og migrer</button>`);
+      return;
+    }
+    showWateringCircuitResult(`Ny vandingskreds: Ventil: ${plan.valve.name}. Potter: ${sensors}.`, `<button type="button" data-watering-circuit-apply="${escapeHtml(label)}">Opret</button>`);
+  } catch (error) {
+    showWateringCircuitResult(`Kunne ikke planlægge: ${error.message || error}`);
+  } finally {
+    if (!form.hidden) button.disabled = false;
+  }
+}
+
+async function applyWateringCircuit(label) {
+  try {
+    const result = await configureWateringCircuit('apply', label);
+    showWateringCircuitResult(`${result.circuit} er anvendt og Home Assistant genindlæst.`);
+  } catch (error) {
+    showWateringCircuitResult(`Kunne ikke anvende: ${error.message || error}`);
+  }
+}
+
+async function migrateWateringCircuit(label) {
+  // eslint-disable-next-line no-alert
+  if (!window.confirm('Overtag den manuelle kreds? Dens pakke sikkerhedskopieres, værdier overføres, og den deaktiveres først efter den genererede konfiguration er valideret. Labels, enheder og historik ændres ikke.')) return;
+  try {
+    const result = await configureWateringCircuit('migrate', label, true);
+    showWateringCircuitResult(`${result.circuit} er overtaget. Backup: ${result.backups.join(', ')}.`);
+  } catch (error) {
+    showWateringCircuitResult(`Kunne ikke migrere: ${error.message || error}`);
+  }
+}
+
+async function removeWateringCircuit(label) {
+  try {
+    const plan = await configureWateringCircuit('remove', label);
+    const description = `Fjern ${plan.packageFile} og ${plan.profiles.length} profil(er)? Labels, enheder og historik bevares.`;
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(description)) return;
+    await configureWateringCircuit('remove', label, true);
+    showWateringCircuitResult(`${label} er fjernet og Home Assistant genindlæst.`);
+  } catch (error) {
+    showWateringCircuitResult(`Kunne ikke fjerne: ${error.message || error}`);
+  }
 }
 
 function renderContactSensor(sensor) {
@@ -1026,7 +1324,7 @@ function renderContactSensor(sensor) {
     <div class="topline">
       <div>
         <div class="zone">${escapeHtml(formatZonePath(sensor))}</div>
-        <div class="name">${escapeHtml(sensor.name)}</div>
+        <div class="name">${escapeHtml(sensor.name)}${renderSignalIndicator(sensor)}</div>
       </div>
       <span class="badge action">Åben</span>
     </div>
@@ -1080,7 +1378,7 @@ function renderActiveDevice(device, options) {
     <div class="topline">
       <div>
         <div class="zone">${escapeHtml(formatZonePath(device))}</div>
-        <div class="name">${escapeHtml(device.name)}</div>
+        <div class="name">${escapeHtml(device.name)}${renderSignalIndicator(device)}</div>
       </div>
       <span class="device-status">${status}</span>
     </div>
@@ -1167,6 +1465,128 @@ function renderLightsDashboard(data) {
     showSummaryThirdCard: false,
     allowTurnOff: true,
   });
+}
+
+function formatReplaySource(run) {
+  if (!run?.sourceStart) return '-';
+  return new Date(run.sourceStart).toLocaleString('da-DK', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function getDefaultReplaySourceValue() {
+  const value = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+
+function toLocalDateTimeValue(value) {
+  if (!value) return getDefaultReplaySourceValue();
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+
+function updateReplayModeFields() {
+  const mode = document.getElementById('replay-mode')?.value;
+  const fixed = mode === 'fixed-loop';
+  document.querySelectorAll('[data-fixed-loop-field]').forEach((field) => {
+    field.hidden = !fixed;
+  });
+  const speed = document.getElementById('replay-speed');
+  if (speed) {
+    speed.disabled = !fixed || replayRunning;
+    if (!fixed) speed.value = '1';
+  }
+}
+
+function renderReplayStatus(data) {
+  const content = document.getElementById('content');
+  const active = data.activeRun;
+  const status = active
+    ? `<div class="replay-live"><strong>I gang</strong><span>${escapeHtml(active.profileName)}</span></div>`
+    : '<div class="replay-idle"><strong>Ikke i gang</strong></div>';
+
+  content.insertAdjacentHTML('afterbegin', `<section class="replay-panel replay-status-panel">
+    <div class="replay-heading"><div><p class="replay-kicker">Der er nogen hjemme</p><h2>Replay</h2></div><button class="replay-link" type="button" data-replay-config>Åbn replay</button></div>
+    ${status}
+  </section>`);
+}
+
+function renderReplayDevice(device, selected) {
+  return `<label class="replay-device${selected ? ' selected' : ''}">
+    <input type="checkbox" name="replay-device" value="${escapeHtml(device.id)}"${selected ? ' checked' : ''}>
+    <span><strong>${escapeHtml(device.name)}</strong><small>${escapeHtml(device.zoneName)} · ${escapeHtml(device.capabilities.join(', '))}</small></span>
+  </label>`;
+}
+
+function renderReplayConfig(data, selectedProfileId) {
+  replayConfigDirty = false;
+  replayRunning = Boolean(data.activeRun);
+  latestDashboard = null;
+  graphDevices = [];
+  setActiveTab();
+  setDashboardTitle('Replay');
+  setUpdatedAt(data.generatedAt);
+  const selectedProfile = data.profiles.find((profile) => profile.id === selectedProfileId)
+    || data.profiles.find((profile) => profile.isDefault)
+    || data.profiles[0];
+  const selected = new Set(selectedProfile?.deviceIds || []);
+  const lights = data.devices.filter((device) => device.isLight);
+  const others = data.devices.filter((device) => !device.isLight);
+  const active = data.activeRun;
+  const defaultProfile = data.profiles.find((profile) => profile.isDefault) || data.profiles[0];
+  const options = data.profiles.map((profile) => `<option value="${escapeHtml(profile.id)}"${profile.id === defaultProfile?.id ? ' selected' : ''}>${escapeHtml(profile.name)}${profile.isDefault ? ' (standard)' : ''}</option>`).join('');
+  const fixedLoop = active?.mode === 'fixed-loop';
+  const runStatus = active
+    ? `<div class="replay-live"><strong>Replay er i gang</strong><span>Kilde start: ${escapeHtml(formatReplaySource(active))}</span><span>Nået til ${escapeHtml(formatReplaySource({ sourceStart: active.replayTime }))}</span><span>${active.actionsApplied || 0} udført · ${active.actionsSkipped || 0} sprunget over · ${active.queuedActions || 0} i kø</span>${active.lastError ? `<span class="replay-warning">Seneste fejl: ${escapeHtml(active.lastError)}</span>` : ''}</div>`
+    : '<div class="replay-idle"><strong>Replay er ikke i gang</strong><span>Standard: samme tidspunkt for 7 dage siden</span></div>';
+  document.getElementById('content').innerHTML = `<section class="replay-panel">
+    <div class="replay-heading"><div><p class="replay-kicker">Der er nogen hjemme</p><h2>Historisk replay</h2></div><button class="replay-link" type="button" data-replay-back>Tilbage til lys</button></div>
+    ${runStatus}
+    <div class="replay-controls">
+      <label>Profil<select id="replay-profile"${active ? ' disabled' : ''}>${options}</select></label>
+      <label>Tilstand<select id="replay-mode"${active ? ' disabled' : ''}><option value="rolling"${fixedLoop ? '' : ' selected'}>Rullende 1x</option><option value="fixed-loop"${fixedLoop ? ' selected' : ''}>Fast loop</option></select></label>
+      <label>Kildetidspunkt<input id="replay-source" type="datetime-local" value="${escapeHtml(toLocalDateTimeValue(active?.sourceStart))}"${active ? ' disabled' : ''}></label>
+      <fieldset class="replay-loop-duration" data-fixed-loop-field${fixedLoop ? '' : ' hidden'}><legend>Loop-længde</legend><label><input id="replay-loop-days" type="number" min="0" max="30" step="1" value="${escapeHtml(active?.loopDays ?? 1)}"${active ? ' disabled' : ''}><span>dage</span></label><label><input id="replay-loop-time" type="time" step="60" value="${String(active?.loopHours ?? 0).padStart(2, '0')}:${String(active?.loopMinutes ?? 0).padStart(2, '0')}"${active ? ' disabled' : ''}><span>timer:minutter</span></label></fieldset>
+      <label>Hastighed<select id="replay-speed"${!fixedLoop || active ? ' disabled' : ''}><option value="1"${Number(active?.speed || 1) === 1 ? ' selected' : ''}>1x</option><option value="5"${Number(active?.speed) === 5 ? ' selected' : ''}>5x test</option><option value="10"${Number(active?.speed) === 10 ? ' selected' : ''}>10x test</option><option value="60"${Number(active?.speed) === 60 ? ' selected' : ''}>60x test</option></select></label>
+      <label>Testvarighed<input id="replay-duration" type="number" min="1" max="10080" placeholder="Ubegrænset"${active ? ' disabled' : ''}></label>
+    </div>
+    <div id="replay-error" class="replay-warning" hidden></div>
+    <button class="replay-primary${active ? ' stop' : ''}" type="button" data-replay-${active ? 'stop' : 'start'}>${active ? 'Stop replay' : 'Start replay nu'}</button>
+  </section>
+  <section class="replay-config">
+    <div class="replay-config-sidebar">
+      <p class="replay-kicker">Profiler</p>
+      ${data.profiles.map((profile) => `<button type="button" class="replay-profile${profile.id === selectedProfile?.id ? ' active' : ''}" data-replay-profile="${escapeHtml(profile.id)}"><strong>${escapeHtml(profile.name)}</strong><span>${profile.deviceIds.length} enheder${profile.isDefault ? ' · standard' : ''}</span></button>`).join('')}
+      <button type="button" class="replay-link" data-replay-new>Ny profil</button>
+    </div>
+    <form id="replay-profile-form" class="replay-config-main" data-profile-id="${escapeHtml(selectedProfile?.id || '')}">
+      <div class="replay-profile-fields"><label>Profilnavn<input name="name" maxlength="80" value="${escapeHtml(selectedProfile?.name || '')}" required></label><label class="replay-default"><input name="isDefault" type="checkbox"${selectedProfile?.isDefault ? ' checked' : ''}> Vælg som standard</label></div>
+      <div class="replay-config-actions"><button type="button" class="replay-delete" data-replay-delete${data.profiles.length === 1 ? ' disabled' : ''}>Slet profil</button><button type="submit" class="replay-primary">Gem profil</button></div>
+      <div class="replay-selection-heading"><div><h2>Lys</h2><p>Farve, dæmpning og tænd/sluk afspilles, når enheden understøtter det.</p></div><div><button type="button" class="replay-link" data-replay-select="lights">Vælg alle</button><button type="button" class="replay-link" data-replay-clear="lights">Fravælg alle</button></div></div>
+      <div class="replay-device-grid" data-device-group="lights">${lights.map((device) => renderReplayDevice(device, selected.has(device.id))).join('')}</div>
+      <div class="replay-selection-heading"><div><h2>Øvrige enheder</h2><p>Kun tænd/sluk afspilles. Vælg bevidst enheder, der er sikre at automatisere.</p></div><div><button type="button" class="replay-link" data-replay-select="others">Vælg alle</button><button type="button" class="replay-link" data-replay-clear="others">Fravælg alle</button></div></div>
+      <div class="replay-device-grid" data-device-group="others">${others.map((device) => renderReplayDevice(device, selected.has(device.id))).join('')}</div>
+      <div id="replay-config-error" class="replay-warning" hidden></div>
+    </form>
+  </section>`;
+}
+
+async function loadReplayConfig(selectedProfileId) {
+  setRefreshDisabled(true);
+  setActiveView('replay');
+  try {
+    const response = await fetch('/api/replay', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    renderReplayConfig(data, selectedProfileId);
+    scheduleRefresh(replayRunning);
+  } catch (error) {
+    document.getElementById('content').innerHTML = `<section class="error">Kunne ikke hente replay-profiler: ${escapeHtml(error.message || error)}</section>`;
+  } finally {
+    setRefreshDisabled(false);
+  }
 }
 
 function renderState(state) {
@@ -1386,10 +1806,15 @@ async function loadLightsDashboard() {
   setActiveView('lights');
 
   try {
-    const response = await fetch('/api/lights-dashboard', { cache: 'no-store' });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || response.statusText);
-    renderLightsDashboard(data);
+    const [lightsResponse, replayResponse] = await Promise.all([
+      fetch('/api/lights-dashboard', { cache: 'no-store' }),
+      fetch('/api/replay', { cache: 'no-store' }),
+    ]);
+    const [lights, replay] = await Promise.all([lightsResponse.json(), replayResponse.json()]);
+    if (!lightsResponse.ok) throw new Error(lights.error || lightsResponse.statusText);
+    if (!replayResponse.ok) throw new Error(replay.error || replayResponse.statusText);
+    renderLightsDashboard(lights);
+    renderReplayStatus(replay);
     scheduleRefresh();
   } catch (error) {
     document.getElementById('content').innerHTML = `<section class="error">Kunne ikke hente lysstatus: ${escapeHtml(error.message || error)}</section>`;
@@ -1433,6 +1858,23 @@ async function loadEnergyDashboard(period = activeEnergyPeriod, offset = activeE
   }
 }
 
+async function loadVehicleDashboard() {
+  setRefreshDisabled(true);
+  setActiveView('vehicle');
+  try {
+    const response = await fetch('/api/vehicle-dashboard', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    renderVehicleDashboard(data);
+    scheduleRefresh();
+  } catch (error) {
+    document.getElementById('content').innerHTML = `<section class="error">Kunne ikke hente bilen: ${escapeHtml(error.message || error)}</section>`;
+    scheduleRefresh();
+  } finally {
+    setRefreshDisabled(false);
+  }
+}
+
 async function setLightOnOff(deviceId, value, button) {
   button.disabled = true;
   button.textContent = value ? 'Tænder...' : 'Slukker...';
@@ -1451,6 +1893,263 @@ async function setLightOnOff(deviceId, value, button) {
     document.getElementById('content').insertAdjacentHTML('afterbegin', `<section class="error">Kunne ikke styre lys: ${escapeHtml(error.message || error)}</section>`);
     button.disabled = false;
     button.textContent = value ? 'Tænd' : 'Sluk';
+  }
+}
+
+function showReplayError(id, message) {
+  const element = document.getElementById(id);
+  if (!element) return;
+  element.textContent = message || '';
+  element.hidden = !message;
+}
+
+async function startReplay(button) {
+  button.disabled = true;
+  button.textContent = 'Starter...';
+  showReplayError('replay-error', '');
+  try {
+    const sourceValue = document.getElementById('replay-source').value;
+    const profileId = document.getElementById('replay-profile').value;
+    const [loopHours, loopMinutes] = document.getElementById('replay-loop-time').value.split(':').map(Number);
+    const response = await fetch('/api/replay/runs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profileId,
+        mode: document.getElementById('replay-mode').value,
+        sourceStart: sourceValue ? new Date(sourceValue).toISOString() : null,
+        speed: Number(document.getElementById('replay-speed').value),
+        loopDays: Number(document.getElementById('replay-loop-days').value),
+        loopHours,
+        loopMinutes,
+        durationMinutes: document.getElementById('replay-duration').value || null,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    await loadReplayConfig(profileId);
+  } catch (error) {
+    showReplayError('replay-error', error.message || error);
+    button.disabled = false;
+    button.textContent = 'Start replay nu';
+  }
+}
+
+async function stopReplay(button) {
+  button.disabled = true;
+  button.textContent = 'Stopper...';
+  try {
+    const response = await fetch('/api/replay/runs/stop', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    await loadReplayConfig();
+  } catch (error) {
+    showReplayError('replay-error', error.message || error);
+    button.disabled = false;
+    button.textContent = 'Stop replay';
+  }
+}
+
+async function saveReplayProfiles(profiles) {
+  const response = await fetch('/api/replay/profiles', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ profiles }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data.profiles;
+}
+
+async function saveReplayProfile(event) {
+  event.preventDefault();
+  const form = event.target;
+  const button = form.querySelector('[type="submit"]');
+  button.disabled = true;
+  button.textContent = 'Gemmer...';
+  showReplayError('replay-config-error', '');
+  try {
+    const response = await fetch('/api/replay', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    const profile = {
+      id: form.dataset.profileId,
+      name: form.elements.name.value,
+      isDefault: form.elements.isDefault.checked,
+      deviceIds: [...form.querySelectorAll('[name="replay-device"]:checked')].map((input) => input.value),
+    };
+    const profiles = data.profiles.map((item) => (item.id === profile.id ? profile : {
+      ...item,
+      isDefault: profile.isDefault ? false : item.isDefault,
+    }));
+    await saveReplayProfiles(profiles);
+    replayConfigDirty = false;
+    await loadReplayConfig(profile.id);
+  } catch (error) {
+    showReplayError('replay-config-error', error.message || error);
+    button.disabled = false;
+    button.textContent = 'Gem profil';
+  }
+}
+
+async function createReplayProfile() {
+  try {
+    const response = await fetch('/api/replay', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    const id = window.crypto.randomUUID();
+    await saveReplayProfiles(data.profiles.concat({
+      id, name: 'Ny profil', isDefault: false, deviceIds: data.devices.filter((device) => device.isLight).map((device) => device.id),
+    }));
+    await loadReplayConfig(id);
+  } catch (error) {
+    showReplayError('replay-config-error', error.message || error);
+  }
+}
+
+async function deleteReplayProfile() {
+  const form = document.getElementById('replay-profile-form');
+  try {
+    const response = await fetch('/api/replay', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    await saveReplayProfiles(data.profiles.filter((profile) => profile.id !== form.dataset.profileId));
+    await loadReplayConfig();
+  } catch (error) {
+    showReplayError('replay-config-error', error.message || error);
+  }
+}
+
+function setIntervalDialogError(message) {
+  const error = document.getElementById('interval-error');
+  error.textContent = message || '';
+  error.hidden = !message;
+}
+
+function updateIntervalOutput() {
+  const slider = document.getElementById('interval-slider');
+  const output = document.getElementById('interval-output');
+  output.value = `${slider.value} min`;
+  output.textContent = `${slider.value} min`;
+  const maxCyclesSlider = document.getElementById('max-cycles-slider');
+  const maxCyclesOutput = document.getElementById('max-cycles-output');
+  maxCyclesOutput.value = maxCyclesSlider.value;
+  maxCyclesOutput.textContent = maxCyclesSlider.value;
+}
+
+function setIntervalSaving(saving) {
+  document.getElementById('interval-slider').disabled = saving;
+  document.getElementById('max-cycles-slider').disabled = saving;
+  document.getElementById('interval-save').disabled = saving;
+  document.getElementById('interval-cancel').disabled = saving;
+  document.getElementById('interval-save').textContent = saving ? 'Gemmer...' : 'Gem indstillinger';
+}
+
+function openIntervalDialog(valveId, currentValue, currentMaxCycles) {
+  intervalDialogValveId = valveId;
+  document.getElementById('interval-title').textContent = document.querySelector(`[data-watering-valve-id="${valveId}"]`).closest('.sensor').querySelector('.name').textContent;
+  document.getElementById('interval-slider').value = currentValue;
+  const hasMaxCycles = Number.isInteger(currentMaxCycles);
+  document.getElementById('max-cycles-setting').hidden = !hasMaxCycles;
+  document.getElementById('max-cycles-slider').value = hasMaxCycles ? currentMaxCycles : 1;
+  setIntervalDialogError('');
+  setIntervalSaving(false);
+  updateIntervalOutput();
+  document.getElementById('interval-overlay').hidden = false;
+  document.body.classList.add('modal-open');
+  document.getElementById('interval-slider').focus();
+}
+
+function closeIntervalDialog() {
+  intervalDialogValveId = null;
+  document.getElementById('interval-overlay').hidden = true;
+  document.body.classList.remove('modal-open');
+  setIntervalDialogError('');
+}
+
+async function saveWateringCycleDuration(event) {
+  event.preventDefault();
+  if (!intervalDialogValveId) return;
+
+  const value = Number(document.getElementById('interval-slider').value);
+  const maxCyclesSetting = document.getElementById('max-cycles-setting');
+  const maxCycles = Number(document.getElementById('max-cycles-slider').value);
+  const valveId = intervalDialogValveId;
+  setIntervalDialogError('');
+  setIntervalSaving(true);
+
+  try {
+    const response = await fetch(`/api/watering/${encodeURIComponent(intervalDialogValveId)}/cycle-duration`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ value }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    if (!maxCyclesSetting.hidden) {
+      const maxCyclesResponse = await fetch(`/api/watering/${encodeURIComponent(valveId)}/max-cycles`, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: maxCycles }),
+      });
+      const maxCyclesData = await maxCyclesResponse.json();
+      if (!maxCyclesResponse.ok) throw new Error(maxCyclesData.error || maxCyclesResponse.statusText);
+      wateringMaxCycleOverrides.set(valveId, maxCycles);
+    }
+    wateringDurationOverrides.set(valveId, value);
+    closeIntervalDialog();
+    document.querySelectorAll(`[data-watering-valve-id="${valveId}"]`).forEach((button) => {
+      button.dataset.cycleDuration = String(value);
+      if (!maxCyclesSetting.hidden) button.dataset.maxCycles = String(maxCycles);
+      if (button.dataset.wateringSetting === 'duration') button.textContent = `${value} min`;
+      if (button.dataset.wateringSetting === 'max-cycles') button.textContent = String(maxCycles);
+    });
+  } catch (error) {
+    setIntervalDialogError(error.message || String(error));
+    setIntervalSaving(false);
+  }
+}
+
+async function restartWateringAfterError(valveId, button) {
+  // eslint-disable-next-line no-alert
+  if (!window.confirm('Nulstil vandingsfejlen? Automatikken genstarter kun vandingen, hvis der stadig er behov.')) return;
+
+  button.disabled = true;
+  button.textContent = 'Nulstiller...';
+  try {
+    const response = await fetch(`/api/watering/${encodeURIComponent(valveId)}/restart`, {
+      method: 'POST',
+      cache: 'no-store',
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    wateringErrorOverrides.set(valveId, false);
+    button.textContent = 'Fejl nulstillet';
+    window.setTimeout(loadWateringDashboard, 700);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = `Kunne ikke nulstille: ${error.message || error}`;
+  }
+}
+
+async function toggleWateringForbiddenForValve(button) {
+  const valveId = button.dataset.wateringForbidden;
+  const nextValue = button.dataset.wateringForbiddenValue !== 'true';
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/watering/${encodeURIComponent(valveId)}/forbidden`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ value: nextValue }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    await loadWateringDashboard();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = `Kunne ikke ændre: ${error.message || error}`;
   }
 }
 
@@ -1522,6 +2221,11 @@ function loadActiveView() {
     return;
   }
 
+  if (activeView === 'circuits') {
+    loadWateringCircuitPage();
+    return;
+  }
+
   if (activeView === 'contact') {
     loadContactDashboard();
     return;
@@ -1537,8 +2241,18 @@ function loadActiveView() {
     return;
   }
 
+  if (activeView === 'replay') {
+    loadReplayConfig();
+    return;
+  }
+
   if (activeView === 'energy') {
     loadEnergyDashboard();
+    return;
+  }
+
+  if (activeView === 'vehicle') {
+    loadVehicleDashboard();
     return;
   }
 
@@ -1553,7 +2267,104 @@ document.getElementById('contact-tab').addEventListener('click', loadContactDash
 document.getElementById('motion-tab').addEventListener('click', loadMotionDashboard);
 document.getElementById('lights-tab').addEventListener('click', loadLightsDashboard);
 document.getElementById('energy-tab').addEventListener('click', () => loadEnergyDashboard());
+document.getElementById('vehicle-tab').addEventListener('click', loadVehicleDashboard);
 document.getElementById('content').addEventListener('click', (event) => {
+  if (event.target.closest('[data-watering-circuit-page]')) {
+    loadWateringCircuitPage();
+    return;
+  }
+  if (event.target.closest('[data-watering-circuit-new]')) {
+    resetWateringCircuitLabel();
+    return;
+  }
+  if (event.target.closest('[data-watering-circuit-back]')) {
+    loadWateringDashboard();
+    return;
+  }
+  const applyCircuit = event.target.closest('[data-watering-circuit-apply]');
+  if (applyCircuit) {
+    applyWateringCircuit(applyCircuit.dataset.wateringCircuitApply);
+    return;
+  }
+  const migrateCircuit = event.target.closest('[data-watering-circuit-migrate]');
+  if (migrateCircuit) {
+    migrateWateringCircuit(migrateCircuit.dataset.wateringCircuitMigrate);
+    return;
+  }
+  const removeCircuit = event.target.closest('[data-watering-circuit-remove]');
+  if (removeCircuit) {
+    removeWateringCircuit(removeCircuit.dataset.wateringCircuitRemove);
+    return;
+  }
+  const replayStart = event.target.closest('[data-replay-start]');
+  if (replayStart) {
+    startReplay(replayStart);
+    return;
+  }
+
+  const replayStop = event.target.closest('[data-replay-stop]');
+  if (replayStop) {
+    stopReplay(replayStop);
+    return;
+  }
+
+  if (event.target.closest('[data-replay-config]')) {
+    loadReplayConfig();
+    return;
+  }
+
+  if (event.target.closest('[data-replay-back]')) {
+    loadLightsDashboard();
+    return;
+  }
+
+  const replayProfile = event.target.closest('[data-replay-profile]');
+  if (replayProfile) {
+    loadReplayConfig(replayProfile.dataset.replayProfile);
+    return;
+  }
+
+  if (event.target.closest('[data-replay-new]')) {
+    createReplayProfile();
+    return;
+  }
+
+  if (event.target.closest('[data-replay-delete]')) {
+    deleteReplayProfile();
+    return;
+  }
+
+  const selectGroup = event.target.closest('[data-replay-select]');
+  const clearGroup = event.target.closest('[data-replay-clear]');
+  if (selectGroup || clearGroup) {
+    const group = (selectGroup || clearGroup).dataset.replaySelect || (selectGroup || clearGroup).dataset.replayClear;
+    document.querySelectorAll(`[data-device-group="${group}"] input`).forEach((input) => {
+      input.checked = Boolean(selectGroup);
+    });
+    replayConfigDirty = true;
+    return;
+  }
+  const intervalButton = event.target.closest('[data-watering-valve-id]');
+  if (intervalButton) {
+    openIntervalDialog(
+      intervalButton.dataset.wateringValveId,
+      Number(intervalButton.dataset.cycleDuration),
+      intervalButton.dataset.maxCycles ? Number(intervalButton.dataset.maxCycles) : null,
+    );
+    return;
+  }
+
+  const wateringRestartButton = event.target.closest('[data-watering-restart]');
+  if (wateringRestartButton) {
+    restartWateringAfterError(wateringRestartButton.dataset.wateringRestart, wateringRestartButton);
+    return;
+  }
+  const wateringForbiddenButton = event.target.closest('[data-watering-forbidden]');
+  if (wateringForbiddenButton) {
+    toggleWateringForbiddenForValve(wateringForbiddenButton);
+    return;
+  }
+
   const counterButton = event.target.closest('[data-counter-device-id][data-counter-type]');
   if (counterButton) {
     resetSoilIssueCounter(counterButton.dataset.counterDeviceId, counterButton.dataset.counterType, counterButton);
@@ -1601,14 +2412,34 @@ document.getElementById('content').addEventListener('click', (event) => {
     motion: loadMotionDashboard,
     lights: loadLightsDashboard,
     energy: loadEnergyDashboard,
+    vehicle: loadVehicleDashboard,
   };
   loaders[card.dataset.view]?.();
+});
+document.getElementById('content').addEventListener('change', (event) => {
+  if (event.target.id === 'replay-mode') updateReplayModeFields();
+  if (event.target.closest('#replay-profile-form')) replayConfigDirty = true;
+});
+document.getElementById('content').addEventListener('input', (event) => {
+  if (event.target.closest('#replay-profile-form')) replayConfigDirty = true;
+});
+document.getElementById('content').addEventListener('submit', (event) => {
+  if (event.target.id === 'watering-circuit-form') {
+    event.preventDefault();
+    planWateringCircuit(event.target);
+    return;
+  }
+  if (event.target.id === 'replay-profile-form') saveReplayProfile(event);
 });
 document.getElementById('watering-mode-card').addEventListener('click', () => {
   const button = document.getElementById('watering-mode-toggle');
   if (button.disabled) return;
   toggleWateringMode();
 });
+document.getElementById('interval-slider').addEventListener('input', updateIntervalOutput);
+document.getElementById('max-cycles-slider').addEventListener('input', updateIntervalOutput);
+document.getElementById('interval-cancel').addEventListener('click', closeIntervalDialog);
+document.getElementById('interval-form').addEventListener('submit', saveWateringCycleDuration);
 document.getElementById('threshold-slider').addEventListener('input', updateThresholdOutput);
 document.getElementById('threshold-form').addEventListener('submit', saveSoilThreshold);
 document.getElementById('threshold-cancel').addEventListener('click', closeThresholdDialog);
@@ -1617,6 +2448,10 @@ document.getElementById('threshold-overlay').addEventListener('click', (event) =
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    if (activeView === 'replay' && !replayRunning) {
+      updateRefreshNote();
+      return;
+    }
     loadActiveView();
     return;
   }

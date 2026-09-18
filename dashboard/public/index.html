@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#2e4b2a">
     <title>Bogfinkevej</title>
     <link rel="manifest" href="/manifest.json?v=20260526-2">
-    <link rel="stylesheet" href="/styles.css?v=20260707-1">
+    <link rel="stylesheet" href="/styles.css?v=20260803-1">
   </head>
   <body>
     <header class="hero">
@@ -23,6 +23,7 @@
           <button id="lights-tab" class="tab" type="button">Lys</button>
           <button id="energy-tab" class="tab" type="button">Elpriser</button>
           <a class="tab tab-link" href="/zigbee">Zigbee</a>
+          <button id="vehicle-tab" class="tab" type="button">Bil</button>
         </nav>
       </div>
     </header>
@@ -60,10 +61,39 @@
       </form>
     </div>
 
+    <div id="interval-overlay" class="threshold-overlay" hidden>
+      <form id="interval-form" class="threshold-panel" role="dialog" aria-modal="true" aria-labelledby="interval-heading">
+        <p class="threshold-kicker">Vandingsindstillinger</p>
+        <h2 id="interval-heading">Indstil cyklusser</h2>
+        <strong id="interval-title" class="threshold-device">-</strong>
+        <p class="threshold-subtitle">Gælder næste vandingscyklus</p>
+        <div class="threshold-value-row">
+          <span>1 min</span>
+          <output id="interval-output" for="interval-slider">5 min</output>
+          <span>30 min</span>
+        </div>
+        <input id="interval-slider" class="threshold-slider" type="range" min="1" max="30" step="1" value="5">
+        <div id="max-cycles-setting">
+          <p class="threshold-subtitle">Maks. cyklusser pr. vandingsforløb</p>
+          <div class="threshold-value-row">
+            <span>1</span>
+            <output id="max-cycles-output" for="max-cycles-slider">3</output>
+            <span>100</span>
+          </div>
+          <input id="max-cycles-slider" class="threshold-slider" type="range" min="1" max="100" step="1" value="3">
+        </div>
+        <p id="interval-error" class="threshold-error" hidden></p>
+        <div class="threshold-actions">
+          <button id="interval-cancel" class="threshold-secondary" type="button">Annuller</button>
+          <button id="interval-save" class="threshold-primary" type="submit">Gem indstillinger</button>
+        </div>
+      </form>
+    </div>
+
     <template id="empty-template">
       <section class="empty">Ingen jordfugtsensorer fundet.</section>
     </template>
 
-    <script src="/app.js?v=20260707-1"></script>
+    <script src="/app.js?v=20260803-1"></script>
   </body>
 </html>

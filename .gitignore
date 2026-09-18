@@ -2,4 +2,9 @@ node_modules/
 .homeybuild/
 .vs/
 env.json
+.local/
 homey-wingman-app/env.json
+zigbee2mqtt/data/secret.yaml
+zigbee2mqtt/mosquitto/config/passwd
+zigbee2mqtt/mosquitto/data/
+zigbee2mqtt/mosquitto/log/

@@ -60,7 +60,7 @@ This backup set is intended for restoring the Hubert Homey Wingman platform.
 
 ## PostgreSQL / TimescaleDB
 
-1. Start a fresh `timescale/timescaledb:latest-pg16` container with `shared_preload_libraries=timescaledb`.
+1. Start a fresh `timescale/timescaledb:2.28.2-pg16` container with `shared_preload_libraries=timescaledb`.
 2. Create the target database/user through compose or restore the `postgres/*-globals.sql.gz` file if needed.
 3. Run `CREATE EXTENSION IF NOT EXISTS timescaledb; SELECT timescaledb_pre_restore();` in the target database.
 4. Restore `postgres/*.dump` with `pg_restore`.

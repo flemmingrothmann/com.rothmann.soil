@@ -1,0 +1,15 @@
+input_boolean:
+  ha_watering_capacity_busy:
+    name: HA vandingskapacitet optaget
+    icon: mdi:water-lock
+
+script:
+  ha_watering_capacity_acquire:
+    alias: Reserver HA vandingskapacitet
+    mode: queued
+    max: 100
+    sequence:
+      - wait_template: "{{ is_state('input_boolean.ha_watering_capacity_busy', 'off') }}"
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.ha_watering_capacity_busy

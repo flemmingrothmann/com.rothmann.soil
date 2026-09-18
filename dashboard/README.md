@@ -32,6 +32,9 @@ docker compose up --build -d
 - `DASHBOARD_PASSWORD`: adgangskode til browseren; skal saettes uden for repoet
 - `DASHBOARD_COOKIE_SECRET`: valgfri hemmelighed til signering af login-cookie
 - `WATERING_FORBIDDEN_VARIABLE_ID`: Homey Logic boolean-variable for `Vanding Forbudt`
+- `PEUGEOT_URL`: intern URL til `psa_car_controller`, default `http://peugeot-car-controller:5000`
+- `PEUGEOT_VIN`: bilens VIN; uden denne viser Bil-fanen opsætningsstatus uden at kalde MyPeugeot
+- `PEUGEOT_MODEL`: modelnavn fra controllerens lokale bilmetadata
 
 Dashboardets `Vanding forbudt` status læses fra og skrives til Homey Logic-variablen. Seneste ændringstidspunkt gemmes lokalt i Docker-volumen `soil-dashboard-data`.
 

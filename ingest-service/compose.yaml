@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.28.2-pg16
     container_name: homey-wingman-postgres
     command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
     restart: unless-stopped

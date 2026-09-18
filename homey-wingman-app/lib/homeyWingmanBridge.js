@@ -20,6 +20,7 @@ const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_RETRY_DELAY_MS = 15000;
 const MAX_RETRY_DELAY_MS = 5 * 60 * 1000;
 const CHRONOGRAPH_APP_ID = 'nl.fellownet.chronograph';
+const HOME_ASSISTANT_PROXY_DRIVER_PREFIX = 'homey:app:io.home-assistant.community:';
 
 function getHomeyEnv(envKey) {
   try {
@@ -47,6 +48,10 @@ function shouldTrackCapability(capability) {
 
 function getCapabilityValue(device, capability) {
   return device?.capabilitiesObj?.[capability]?.value;
+}
+
+function isHomeAssistantProxyDevice(device) {
+  return String(device?.driverId || '').startsWith(HOME_ASSISTANT_PROXY_DRIVER_PREFIX);
 }
 
 class HomeyWingmanBridge {
@@ -248,6 +253,8 @@ class HomeyWingmanBridge {
         this.getLogicVariables(),
       ]);
 
+      const trackedDevices = Object.fromEntries(Object.entries(devices || {})
+        .filter(([, device]) => !isHomeAssistantProxyDevice(device)));
       const response = await fetch(syncUrl, {
         method: 'POST',
         headers: {
@@ -257,7 +264,7 @@ class HomeyWingmanBridge {
         },
         body: JSON.stringify({
           syncedAt: new Date().toISOString(),
-          devices: this.toPlain(devices),
+          devices: this.toPlain(trackedDevices),
           zones: this.toPlain(zones),
           flows: this.toPlain(flows),
           advancedFlows: this.toPlain(advancedFlows),
@@ -284,6 +291,9 @@ class HomeyWingmanBridge {
     let tracked = 0;
 
     for (const device of Object.values(devices || {})) {
+      if (isHomeAssistantProxyDevice(device)) {
+        continue;
+      }
       for (const capability of device.capabilities || []) {
         if (!shouldTrackCapability(capability)) {
           continue;
@@ -418,5 +428,6 @@ class HomeyWingmanBridge {
 
 module.exports = {
   HomeyWingmanBridge,
+  isHomeAssistantProxyDevice,
   shouldTrackCapability,
 };

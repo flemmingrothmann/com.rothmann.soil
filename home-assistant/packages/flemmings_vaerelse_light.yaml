@@ -1,0 +1,4 @@
+input_boolean:
+  flemmings_vaerelse_vaeglys_dim_up:
+    name: Flemmings værelse væglys næste dæmpning op
+    initial: false

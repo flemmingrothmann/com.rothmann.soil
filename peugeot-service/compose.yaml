@@ -1,0 +1,23 @@
+services:
+  peugeot-car-controller:
+    image: flobz/psa_car_controller:v3.7.5
+    container_name: peugeot-car-controller
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5000:5000"
+    expose:
+      - "5000"
+    networks:
+      - reverse-proxy
+    volumes:
+      - peugeot-car-controller-data:/config
+    environment:
+      PSACC_CONFIG_DIR: /config
+      PSACC_PORT: 5000
+
+volumes:
+  peugeot-car-controller-data:
+
+networks:
+  reverse-proxy:
+    external: true

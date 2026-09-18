@@ -35,10 +35,11 @@
       .legend { align-items: center; gap: 12px; }
       .legend-item { align-items: center; color: #475467; display: inline-flex; font-size: 12px; font-weight: 900; gap: 7px; }
       .legend-line { border-radius: 999px; display: inline-block; height: 4px; width: 34px; }
-      .legend-line.backbone { background: #1d4ed8; height: 7px; }
+      .legend-line.backbone { background: #f97316; height: 7px; }
       .legend-line.enddevice { background: #15803d; height: 4px; }
-      .legend-line.old-backbone { background: #93c5fd; height: 7px; }
-      .legend-line.old-enddevice { background: #86efac; height: 4px; }
+      .legend-line.old-backbone { background: #8b5cf6; height: 7px; }
+      .legend-line.old-enddevice { background: #14b8a6; height: 4px; }
+      .legend-line.unused { background: repeating-linear-gradient(90deg, #64748b 0 8px, transparent 8px 14px); height: 4px; }
       .legend-line.low { background: #64748b; height: 2px; }
       .legend-line.high { background: #64748b; height: 12px; }
       .legend-box { background: rgba(219,234,254,0.7); border: 2px dashed #94a3b8; border-radius: 7px; display: inline-block; height: 20px; width: 30px; }
@@ -59,7 +60,7 @@
       <header class="hero">
         <div>
           <h1>Zigbee routekort</h1>
-          <p>Live Cytoscape-layout af Homeys sidst kendte parent-routes plus 14 dages route-observationer. Mørk blå/grøn er senest brugt route; lys blå/grøn er tidligere routes. Tykkelsen følger antal observerede beskeder/routes.</p>
+          <p>Live Cytoscape-layout af Homeys sidst kendte parent-routes plus 7 dages route-observationer. Orange/grøn er aktuel route; lilla/turkis er tidligere routes. Tykkelsen følger antal observationer i det rullende 7-dages vindue.</p>
         </div>
         <a class="dashboard-link" href="/">Dashboard</a>
       </header>
@@ -95,8 +96,9 @@
             <span class="legend-item"><span class="legend-line enddevice"></span>Senest end-device</span>
             <span class="legend-item"><span class="legend-line old-backbone"></span>Tidligere router/coordinator</span>
             <span class="legend-item"><span class="legend-line old-enddevice"></span>Tidligere end-device</span>
-            <span class="legend-item"><span class="legend-line low"></span>Få beskeder</span>
-            <span class="legend-item"><span class="legend-line high"></span>Mange beskeder</span>
+            <span class="legend-item"><span class="legend-line unused"></span>Ubrugt &gt; 2 døgn</span>
+            <span class="legend-item"><span class="legend-line low"></span>Få observationer</span>
+            <span class="legend-item"><span class="legend-line high"></span>Mange observationer</span>
             <span class="legend-item"><span class="legend-box"></span>Zone</span>
           </div>
           <div class="toggle-row"><label class="toggle"><input id="show-end-labels" type="checkbox" checked> End-device navne</label><label class="toggle"><input id="show-zones" type="checkbox" checked> Zonekasser</label></div>
@@ -318,8 +320,9 @@
       }
 
       function getElements(savedLayout) {
-        const currentIds = new Set(model.nodes.map((node) => node.id));
-        const historyNodes = (model.history?.nodes || []).filter((node) => !currentIds.has(node.id)).map((node) => ({
+        const isUnknownNode = (node) => (node.category || 'unknown') === 'unknown' || String(node.label || '').startsWith('Ukendt ');
+        const removedLabel = (label) => String(label || 'Fjernet enhed').includes('(fjernet)') ? String(label || 'Fjernet enhed') : `${label || 'Fjernet enhed'} (fjernet)`;
+        const rawHistoryNodes = (model.history?.nodes || []).map((node) => ({
           id: node.id,
           label: node.label,
           category: node.category || 'unknown',
@@ -327,18 +330,52 @@
           zone: node.zone || 'Ukendt zone',
           zoneShort: node.zone_short || 'Ukendt zone',
           addressLabel: node.address_label || '',
+          lastSeen: node.last_seen || null,
           childCount: node.child_count || 0,
           available: node.available,
-          stale: true,
+          stale: node.stale || false,
+          removed: node.removed === true,
         }));
-        const allNodes = model.nodes.concat(historyNodes);
+        const knownHistoryById = new Map(rawHistoryNodes.filter((node) => !isUnknownNode(node)).map((node) => [String(node.id), node]));
+        const currentNodes = model.nodes.reduce((result, node) => {
+          const knownHistory = knownHistoryById.get(String(node.id));
+
+          if (isUnknownNode(node)) {
+            if (!knownHistory) return result;
+
+            result.push({
+              ...node,
+              label: removedLabel(knownHistory.label),
+              category: knownHistory.category,
+              type: knownHistory.type,
+              zone: knownHistory.zone,
+              zoneShort: knownHistory.zoneShort,
+              addressLabel: knownHistory.addressLabel || node.addressLabel,
+              lastSeen: knownHistory.lastSeen,
+              available: false,
+              removed: true,
+              stale: true,
+            });
+            return result;
+          }
+
+          result.push({ ...node, removed: false });
+          return result;
+        }, []);
+        const currentIds = new Set(currentNodes.map((node) => String(node.id)));
+        const historyNodes = rawHistoryNodes
+          .filter((node) => !currentIds.has(String(node.id)) && !isUnknownNode(node))
+          .map((node) => ({ ...node, label: removedLabel(node.label), removed: true, stale: true }));
+        const allNodes = currentNodes.concat(historyNodes);
+        const visibleNodeIds = new Set(allNodes.map((node) => String(node.id)));
         const stableLayout = getStableLayout(savedLayout, allNodes);
-        const zoneCounts = allNodes.filter((node) => node.category === 'enddevice').reduce((result, node) => {
+        const isZoneBoxNode = (node) => ['router', 'enddevice'].includes(node.category) && !['Hjem', 'Controller', 'Ukendt zone'].includes(node.zoneShort || 'Ukendt zone');
+        const zoneCounts = allNodes.filter(isZoneBoxNode).reduce((result, node) => {
           const zoneName = node.zoneShort || 'Ukendt zone';
           result[zoneName] = (result[zoneName] || 0) + 1;
           return result;
         }, {});
-        const zoneNames = Object.keys(zoneCounts).filter((zoneName) => zoneCounts[zoneName] >= 2).sort((left, right) => left.localeCompare(right, 'da'));
+        const zoneNames = Object.keys(zoneCounts).sort((left, right) => left.localeCompare(right, 'da'));
         const boxedZones = new Set(zoneNames);
         const zoneNodes = zoneNames.map((zoneName, index) => ({
           group: 'nodes',
@@ -353,11 +390,26 @@
           },
           classes: `zone-group ${zoneColorClass(index)}`,
         }));
+        const referenceTime = Date.parse(model.history?.generatedAt || model.generatedAt || new Date().toISOString());
+        const unusedEdgeThresholdMs = 48 * 60 * 60 * 1000;
+        const isStaleCommunication = (lastSeen) => {
+          const observedAt = Date.parse(lastSeen || '');
+          return Number.isFinite(observedAt) && Number.isFinite(referenceTime) && referenceTime - observedAt > unusedEdgeThresholdMs;
+        };
+        const allNodesById = new Map(allNodes.map((node) => [String(node.id), node]));
+        const getCurrentRouteCommunicationAt = (nodeId) => {
+          const timestamps = [allNodesById.get(String(nodeId))?.lastSeen]
+            .concat(model.links
+              .filter((link) => String(link.target) === String(nodeId))
+              .map((link) => allNodesById.get(String(link.source))?.lastSeen))
+            .filter((value) => Number.isFinite(Date.parse(value || '')));
+          return timestamps.sort((left, right) => Date.parse(right) - Date.parse(left))[0] || null;
+        };
         const nodes = allNodes.map((node) => ({
           group: 'nodes',
           data: {
             id: node.id,
-            parent: node.category === 'enddevice' && showZones.checked && boxedZones.has(node.zoneShort || 'Ukendt zone') ? zoneGroupId(node.zoneShort || 'Ukendt zone') : undefined,
+            parent: isZoneBoxNode(node) && showZones.checked && boxedZones.has(node.zoneShort || 'Ukendt zone') ? zoneGroupId(node.zoneShort || 'Ukendt zone') : undefined,
             label: nodeLabel(node),
             fullLabel: node.label,
             category: node.category,
@@ -365,25 +417,43 @@
             address: node.addressLabel,
             childCount: node.childCount,
             available: node.available,
-            stale: node.stale || model.history?.nodes?.find((item) => item.id === node.id)?.stale || false,
+            stale: node.removed === true || isStaleCommunication(getCurrentRouteCommunicationAt(node.id)),
+            removed: node.removed === true,
             size: nodeSize(node),
           },
           position: stableLayout[node.id] || undefined,
         }));
-        const allNodesById = new Map(allNodes.map((node) => [String(node.id), node]));
         const visualEdgeKey = (source, target) => [String(source), String(target)].sort().join('<->');
         const edgeType = (source, target, sourceCategory = null) => {
           const sourceNode = allNodesById.get(String(source));
           const targetNode = allNodesById.get(String(target));
           return [sourceCategory, sourceNode?.category, targetNode?.category].includes('enddevice') ? 'enddevice' : 'backbone';
         };
-        const historyObservationByKey = (model.history?.edges || []).reduce((result, edge) => {
+        const historyByKey = (model.history?.edges || []).reduce((result, edge) => {
           const key = visualEdgeKey(edge.source_id, edge.target_id);
-          result[key] = (result[key] || 0) + (Number(edge.observations) || 0);
+          const existing = result[key] || { observations: 0, lastObservedAt: null };
+          const lastObservedAt = Date.parse(edge.last_observed_at || '');
+          const existingLastObservedAt = Date.parse(existing.lastObservedAt || '');
+          existing.observations += Number(edge.observations) || 0;
+          if (Number.isFinite(lastObservedAt) && (!Number.isFinite(existingLastObservedAt) || lastObservedAt > existingLastObservedAt)) {
+            existing.lastObservedAt = edge.last_observed_at;
+          }
+          result[key] = existing;
           return result;
         }, {});
-        const currentEdgeKeys = new Set(model.links.map((link) => visualEdgeKey(link.source, link.target)));
+        const historyObservationByKey = Object.entries(historyByKey).reduce((result, [key, edge]) => {
+          result[key] = edge.observations;
+          return result;
+        }, {});
+        const isUnusedEdge = (lastObservedAt, sourceId = null, currentRoute = false) => {
+          const communicationAt = currentRoute ? getCurrentRouteCommunicationAt(sourceId) : lastObservedAt;
+          const observedAt = Date.parse(communicationAt || '');
+          return Number.isFinite(observedAt) && Number.isFinite(referenceTime) && referenceTime - observedAt > unusedEdgeThresholdMs;
+        };
+        const visibleCurrentLinks = model.links.filter((link) => visibleNodeIds.has(String(link.source)) && visibleNodeIds.has(String(link.target)));
+        const currentEdgeKeys = new Set(visibleCurrentLinks.map((link) => visualEdgeKey(link.source, link.target)));
         const mergedHistory = (model.history?.edges || []).reduce((result, edge) => {
+          if (!visibleNodeIds.has(String(edge.source_id)) || !visibleNodeIds.has(String(edge.target_id))) return result;
           const key = visualEdgeKey(edge.source_id, edge.target_id);
           if (currentEdgeKeys.has(key)) return result;
           const existing = result.get(key);
@@ -414,39 +484,54 @@
           return Math.round((min + (max - min) * normalized) * 10) / 10;
         };
         const edgeColor = (type, latest) => {
-          if (type === 'enddevice') return latest ? '#15803d' : '#86efac';
-          return latest ? '#1d4ed8' : '#93c5fd';
+          if (type === 'enddevice') return latest ? '#15803d' : '#14b8a6';
+          return latest ? '#f97316' : '#8b5cf6';
         };
-        const historyEdges = rankedHistory.map((edge) => ({
-          group: 'edges',
-          data: {
-            id: `history:${edge.source_id}->${edge.target_id}`,
-            source: edge.source_id,
-            target: edge.target_id,
-            kind: 'history',
-            observations: edge.observations,
-            type: edgeType(edge.source_id, edge.target_id, edge.source_category),
-            width: edgeWidth(edge.observations, edgeType(edge.source_id, edge.target_id, edge.source_category)),
-            color: edgeColor(edgeType(edge.source_id, edge.target_id, edge.source_category), false),
-          },
-          classes: `history ${edgeType(edge.source_id, edge.target_id, edge.source_category)}`,
-        }));
-        const parents = model.links.map((link) => ({
-          group: 'edges',
-          data: {
-            id: link.id,
-            source: link.source,
-            target: link.target,
-            kind: 'parent',
-            sourceCategory: link.sourceCategory,
-            type: edgeType(link.source, link.target, link.sourceCategory),
-            observations: historyObservationByKey[visualEdgeKey(link.source, link.target)] || 1,
-            width: edgeWidth(historyObservationByKey[visualEdgeKey(link.source, link.target)] || 1, edgeType(link.source, link.target, link.sourceCategory)),
-            color: edgeColor(edgeType(link.source, link.target, link.sourceCategory), true),
-            route: link.routeLabels.join(' -> '),
-          },
-          classes: `parent ${edgeType(link.source, link.target, link.sourceCategory)}`,
-        }));
+        const historyEdges = rankedHistory.map((edge) => {
+          const type = edgeType(edge.source_id, edge.target_id, edge.source_category);
+          const unused = isUnusedEdge(edge.last_observed_at, edge.source_id, false);
+          return {
+            group: 'edges',
+            data: {
+              id: `history:${edge.source_id}->${edge.target_id}`,
+              source: edge.source_id,
+              target: edge.target_id,
+              kind: 'history',
+              observations: edge.observations,
+              lastObservedAt: edge.last_observed_at,
+              unused,
+              type,
+              width: edgeWidth(edge.observations, type),
+              color: edgeColor(type, false),
+            },
+            classes: `history ${type}${unused ? ' unused' : ''}`,
+          };
+        });
+        const parents = visibleCurrentLinks.map((link) => {
+          const key = visualEdgeKey(link.source, link.target);
+          const historyInfo = historyByKey[key] || {};
+          const type = edgeType(link.source, link.target, link.sourceCategory);
+          const observations = historyInfo.observations || 1;
+          const unused = isUnusedEdge(historyInfo.lastObservedAt, link.source, true);
+          return {
+            group: 'edges',
+            data: {
+              id: link.id,
+              source: link.source,
+              target: link.target,
+              kind: 'parent',
+              sourceCategory: link.sourceCategory,
+              type,
+              observations,
+              lastObservedAt: historyInfo.lastObservedAt || null,
+              unused,
+              width: edgeWidth(observations, type),
+              color: edgeColor(type, true),
+              route: link.routeLabels.join(' -> '),
+            },
+            classes: `parent ${type}${unused ? ' unused' : ''}`,
+          };
+        });
         return zoneNodes.concat(nodes, historyEdges, parents);
       }
 
@@ -521,13 +606,17 @@
             { selector: 'node[category = "router"]', style: { 'background-color': '#2f80ed' } },
             { selector: 'node[category = "unknown"]', style: { 'background-color': '#94a3b8' } },
             { selector: 'node[stale = true]', style: { 'background-color': '#9ca3af', 'border-color': '#6b7280' } },
+            { selector: 'node[removed = true]', style: { 'background-color': '#9ca3af', 'border-color': '#334155', 'border-style': 'dashed' } },
             { selector: 'node[category != "zone"][available = false]', style: { 'background-color': '#c94b32' } },
             { selector: 'node:selected', style: { 'border-width': 6, 'border-color': '#111827', 'z-index': 20 } },
             { selector: 'edge', style: { 'curve-style': 'haystack', 'haystack-radius': 0.55, 'target-arrow-shape': 'none', 'line-cap': 'round' } },
-            { selector: 'edge.parent', style: { width: 'data(width)', 'line-color': 'data(color)', opacity: 0.78, 'z-index': 8 } },
+            { selector: 'edge.parent', style: { width: 'data(width)', 'line-color': 'data(color)', opacity: 0.84, 'z-index': 8 } },
             { selector: 'edge.parent.enddevice', style: { opacity: 0.64 } },
-            { selector: 'edge.history', style: { width: 'data(width)', 'line-color': 'data(color)', opacity: 0.34, 'z-index': 1 } },
-            { selector: 'edge.history.enddevice', style: { opacity: 0.28 } },
+            { selector: 'edge.history', style: { width: 'data(width)', 'line-color': 'data(color)', opacity: 0.44, 'z-index': 1 } },
+            { selector: 'edge.history.enddevice', style: { opacity: 0.36 } },
+            { selector: 'edge.unused', style: { 'curve-style': 'straight', 'line-style': 'dashed', 'line-dash-pattern': [14, 22], 'line-color': '#64748b', opacity: 0.34 } },
+            { selector: 'edge.parent.unused', style: { 'line-color': '#334155', opacity: 0.58, 'z-index': 12 } },
+            { selector: 'edge.history.unused', style: { 'line-color': '#64748b', opacity: 0.32 } },
             { selector: '.dim', style: { opacity: 0.12 } },
             { selector: '.focus', style: { opacity: 1, 'z-index': 30 } },
           ],

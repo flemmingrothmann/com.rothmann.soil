@@ -1,0 +1,206 @@
+blueprint:
+  name: Labelled pot watering
+  description: >-
+    Waters a labelled plant group while one or more labelled soil alarms are on.
+    The controller resolves the label at setup time and provides the generated
+    canonical soil-alarm helpers explicitly.
+  domain: automation
+  input:
+    watering_label:
+      name: Watering-circuit label
+      description: The shared label on the valve and soil sensor devices.
+      selector:
+        label:
+    valve:
+      name: Water valve switch
+      selector:
+        entity:
+          domain: switch
+    water_alarms:
+      name: Soil watering alarms
+      selector:
+        entity:
+          multiple: true
+          domain: input_boolean
+    cycle_duration:
+      name: Watering duration
+      description: Input number in minutes for each valve-open cycle.
+      selector:
+        entity:
+          domain: input_number
+    pause_duration:
+      name: Pause duration
+      description: Input number in minutes between cycles.
+      selector:
+        entity:
+          domain: input_number
+    maximum_cycles:
+      name: Maximum cycles
+      description: Input number that limits one watering run.
+      selector:
+        entity:
+          domain: input_number
+    cycle_number:
+      name: Current cycle number
+      selector:
+        entity:
+          domain: input_number
+    watering_error:
+      name: Watering error
+      description: Latched input boolean. Reset it manually after resolving an error.
+      selector:
+        entity:
+          domain: input_boolean
+    watering_forbidden:
+      name: Watering forbidden
+      description: Per-valve circuit gate. Does not interrupt an already open valve.
+      selector:
+        entity:
+          domain: input_boolean
+    lifecycle_status:
+      name: Lifecycle status
+      description: Input select with idle, watering, waiting_result and cycle_limit options.
+      selector:
+        entity:
+          domain: input_select
+    capacity_busy:
+      name: Shared HA watering capacity busy
+      selector:
+        entity:
+          domain: input_boolean
+    capacity_acquire:
+      name: Shared HA watering capacity reservation script
+      selector:
+        entity:
+          domain: script
+
+mode: single
+max_exceeded: silent
+
+variables:
+  watering_label: !input watering_label
+  valve: !input valve
+  water_alarms: !input water_alarms
+  cycle_duration: !input cycle_duration
+  pause_duration: !input pause_duration
+  maximum_cycles: !input maximum_cycles
+  cycle_number: !input cycle_number
+  watering_error: !input watering_error
+  watering_forbidden: !input watering_forbidden
+  lifecycle_status: !input lifecycle_status
+  capacity_busy: !input capacity_busy
+  capacity_acquire: !input capacity_acquire
+
+trigger:
+  - platform: homeassistant
+    event: start
+  - platform: event
+    event_type: state_changed
+  - platform: state
+    entity_id: !input watering_error
+    to: 'off'
+
+condition:
+  - condition: template
+    value_template: >-
+      {% if trigger.platform == 'event' %}
+        {{ trigger.event.data.entity_id in water_alarms
+           and trigger.event.data.new_state is not none
+           and trigger.event.data.new_state.state == 'on' }}
+      {% else %}
+        {{ expand(water_alarms) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+      {% endif %}
+  - condition: state
+    entity_id: !input watering_forbidden
+    state: 'off'
+  - condition: template
+    value_template: "{{ water_alarms | count > 0 }}"
+
+action:
+  - action: input_number.set_value
+    target:
+      entity_id: !input cycle_number
+    data:
+      value: 0
+  - repeat:
+      while:
+        - condition: template
+          value_template: >-
+            {{ repeat.index <= states(maximum_cycles) | int(0)
+               and expand(water_alarms) | selectattr('state', 'eq', 'on') | list | count > 0
+               and is_state(watering_error, 'off')
+               and is_state(watering_forbidden, 'off') }}
+      sequence:
+        - choose:
+            - conditions:
+                - condition: state
+                  entity_id: !input capacity_busy
+                  state: 'on'
+              sequence:
+                - action: input_select.select_option
+                  target:
+                    entity_id: !input lifecycle_status
+                  data:
+                    option: waiting_capacity
+        - action: !input capacity_acquire
+        - action: input_number.set_value
+          target:
+            entity_id: !input cycle_number
+          data:
+            value: "{{ repeat.index }}"
+        - action: input_select.select_option
+          target:
+            entity_id: !input lifecycle_status
+          data:
+            option: watering
+        - action: switch.turn_on
+          target:
+            entity_id: !input valve
+        - delay:
+            minutes: "{{ states(cycle_duration) | int(1) }}"
+        - action: switch.turn_off
+          target:
+            entity_id: !input valve
+        - action: input_boolean.turn_off
+          target:
+            entity_id: !input capacity_busy
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: >-
+                    {{ expand(water_alarms) | selectattr('state', 'eq', 'on') | list | count > 0
+                       and repeat.index < states(maximum_cycles) | int(0) }}
+              sequence:
+                - action: input_select.select_option
+                  target:
+                    entity_id: !input lifecycle_status
+                  data:
+                    option: waiting_result
+                - delay:
+                    minutes: "{{ states(pause_duration) | int(1) }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+               {{ repeat.index >= states(maximum_cycles) | int(0)
+                  and expand(water_alarms) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input watering_error
+          - action: input_select.select_option
+            target:
+              entity_id: !input lifecycle_status
+            data:
+              option: cycle_limit
+    default:
+      - action: input_select.select_option
+        target:
+          entity_id: !input lifecycle_status
+        data:
+          option: idle
+      - action: input_number.set_value
+        target:
+          entity_id: !input cycle_number
+        data:
+          value: 0

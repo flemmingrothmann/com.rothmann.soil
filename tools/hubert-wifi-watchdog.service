@@ -1,0 +1,9 @@
+[Unit]
+Description=Hubert WiFi gateway watchdog
+After=systemd-networkd.service netplan-wpa-wlp1s0.service
+Wants=systemd-networkd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hubert-wifi-watchdog.sh
+Nice=10

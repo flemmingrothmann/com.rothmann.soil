@@ -1,0 +1,26 @@
+services:
+  home-assistant-ingest-service:
+    build: .
+    container_name: home-assistant-wingman-ingest-service
+    restart: unless-stopped
+    environment:
+      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_USERNAME: zigbee2mqtt
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set}
+      WINGMAN_URL: http://homey-wingman-ingest-service:8788
+      INGEST_TOKEN: ${INGEST_TOKEN:?INGEST_TOKEN must be set}
+    volumes:
+      - home-assistant-ingest-data:/data
+    networks:
+      - home-automation
+      - wingman
+
+volumes:
+  home-assistant-ingest-data:
+
+networks:
+  home-automation:
+    external: true
+  wingman:
+    external: true
+    name: ingest-service_default

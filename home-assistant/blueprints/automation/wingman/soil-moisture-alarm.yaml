@@ -1,0 +1,85 @@
+blueprint:
+  name: Soil moisture alarm
+  description: >-
+    Maintains a canonical watering alarm from a soil moisture sensor. The alarm
+    turns on at or below the configured threshold and turns off only after the
+    moisture reaches the threshold plus a fixed 6 percentage point hysteresis,
+    capped at 95%.
+  domain: automation
+  input:
+    moisture_sensor:
+      name: Soil moisture sensor
+      selector:
+        entity:
+          domain: sensor
+          device_class: moisture
+    threshold:
+      name: Watering threshold
+      selector:
+        entity:
+          domain: input_number
+    water_alarm:
+      name: Watering alarm
+      selector:
+        entity:
+          domain: input_boolean
+    alarm_topic:
+      name: Wingman alarm MQTT topic
+      description: Publish the HA-owned canonical alarm state for Wingman ingest.
+      selector:
+        text:
+
+mode: queued
+max: 10
+
+variables:
+  moisture_sensor: !input moisture_sensor
+  threshold_entity: !input threshold
+  water_alarm: !input water_alarm
+  alarm_topic: !input alarm_topic
+  moisture: "{{ states(moisture_sensor) | float(none) }}"
+  lower: "{{ states(threshold_entity) | float(none) }}"
+  hysteresis: 6
+  upper: >-
+    {% if lower is number and hysteresis is number %}
+      {{ [95, lower + hysteresis] | min }}
+    {% endif %}
+
+trigger:
+  - platform: homeassistant
+    event: start
+  - platform: state
+    entity_id: !input moisture_sensor
+  - platform: state
+    entity_id: !input threshold
+
+condition:
+  - condition: template
+    value_template: "{{ moisture is number and lower is number and upper is number }}"
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ moisture <= lower and is_state(water_alarm, 'off') }}"
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input water_alarm
+          - action: mqtt.publish
+            data:
+              topic: "{{ alarm_topic }}"
+              payload: "ON"
+              retain: true
+      - conditions:
+          - condition: template
+            value_template: "{{ moisture >= upper and is_state(water_alarm, 'on') }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input water_alarm
+          - action: mqtt.publish
+            data:
+              topic: "{{ alarm_topic }}"
+              payload: "OFF"
+              retain: true

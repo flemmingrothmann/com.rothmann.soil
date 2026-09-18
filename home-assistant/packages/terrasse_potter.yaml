@@ -1,0 +1,51 @@
+input_number:
+  terrasse_potter_cycle_duration:
+    name: Terrasse potter cyklusvarighed
+    icon: mdi:timer-play-outline
+    min: 1
+    max: 30
+    step: 1
+    unit_of_measurement: min
+    mode: box
+  terrasse_potter_pause_duration:
+    name: Terrasse potter pause
+    icon: mdi:timer-pause-outline
+    min: 1
+    max: 120
+    step: 1
+    unit_of_measurement: min
+    mode: box
+  terrasse_potter_maximum_cycles:
+    name: Terrasse potter maks. cyklusser
+    icon: mdi:counter
+    min: 1
+    max: 100
+    step: 1
+    mode: box
+  terrasse_potter_cycle_number:
+    name: Terrasse potter cyklusnummer
+    icon: mdi:counter
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+
+input_boolean:
+  terrasse_potter_watering_error:
+    name: Terrasse potter vandingsfejl
+    icon: mdi:water-alert
+  terrasse_potter_watering_forbidden:
+    name: Terrasse potter vanding forbudt
+    icon: mdi:water-off
+
+input_select:
+  terrasse_potter_watering_status:
+    name: Terrasse potter vandingsstatus
+    icon: mdi:watering-can-outline
+    options:
+      - idle
+      - watering
+      - waiting_result
+      - waiting_capacity
+      - cycle_limit
+    initial: idle

@@ -1,0 +1,7 @@
+input_boolean:
+  overnattende_gaester_i_audiotoriet:
+    name: Overnattende gæster i Audiotoriet
+    icon: mdi:bed-outline
+  vitrine_og_skaenk_manuel_farve:
+    name: Skænk og Vitrine manuel farve
+    icon: mdi:palette-outline

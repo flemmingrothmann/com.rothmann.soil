@@ -5,10 +5,12 @@ const assert = require('node:assert/strict');
 
 const {
   canSetSoilAlarmThreshold,
+  compareZoneDevices,
   countWaterAlarmActivations,
   getActiveSince,
   getDanishPeriodRange,
   getLatestCapabilityUpdatedAt,
+  hasIngestedCapability,
   getSoilMaintenanceStatus,
   isActiveCapability,
   isContactSensor,
@@ -20,9 +22,11 @@ const {
   normalizeSoilHistory,
   normalizeSoilWarningThresholdInput,
   normalizeEnergyPeriodOffset,
+  normalizeWateringMaxCycles,
   shouldShowActiveDevice,
   updateSoilIssueCounterState,
 } = require('../dashboard/server');
+const { isHomeAssistantProxyDevice } = require('../homey-wingman-app/lib/homeyWingmanBridge');
 
 test('counts water alarm activations within cutoff', () => {
   const cutoff = Date.parse('2026-05-01T00:00:00.000Z');
@@ -59,6 +63,24 @@ test('marks all tied water alarm topscorers per zone', () => {
   assert.equal(zones[0].devices[1].waterAlarmStats.zoneTopScorer, true);
   assert.equal(zones[0].devices[2].waterAlarmStats.zoneTopScorer, false);
   assert.equal(zones[1].devices[0].waterAlarmStats.zoneTopScorer, false);
+});
+
+test('keeps zone sensor order independent of alarm status', () => {
+  const devices = [
+    {
+      name: 'Zebra', needsAction: true, needsMaintenance: false, values: { waterAlarm: true },
+    },
+    {
+      name: 'Alpha', needsAction: false, needsMaintenance: false, values: { waterAlarm: false },
+    },
+    {
+      name: 'Mellem', needsAction: true, needsMaintenance: true, values: { waterAlarm: false },
+    },
+  ];
+
+  devices.sort(compareZoneDevices);
+
+  assert.deepEqual(devices.map((device) => device.name), ['Alpha', 'Mellem', 'Zebra']);
 });
 
 test('normalizes soil moisture insight history within dashboard window', () => {
@@ -149,6 +171,19 @@ test('allows soil threshold control only for live supported sensors', () => {
     ...device,
     capabilitiesObj: { measure_soil_moisture: { lastUpdated: new Date(now - (7 * 60 * 60 * 1000)).toISOString() } },
   }, now), false);
+});
+
+test('identifies capabilities supplied by Wingman current state', () => {
+  const device = {
+    capabilitiesObj: {
+      linkquality: { value: 42, ingested: true },
+      measure_battery: { value: 80 },
+    },
+  };
+
+  assert.equal(hasIngestedCapability(device, 'linkquality'), true);
+  assert.equal(hasIngestedCapability(device, 'measure_battery'), false);
+  assert.equal(hasIngestedCapability(device, 'missing'), false);
 });
 
 test('marks live soil sensors for maintenance when moisture is unchanged for 22 hours', () => {
@@ -312,6 +347,11 @@ test('detects light devices by class and onoff capability', () => {
   }), false);
 });
 
+test('excludes Home Assistant proxy devices from the Homey Wingman feed', () => {
+  assert.equal(isHomeAssistantProxyDevice({ driverId: 'homey:app:io.home-assistant.community:light' }), true);
+  assert.equal(isHomeAssistantProxyDevice({ driverId: 'homey:app:com.athom.zigbee:light' }), false);
+});
+
 test('finds active contact sensor open start from latest true entry', () => {
   const activeSince = getActiveSince([
     { t: '2026-06-01T10:00:00.000Z', v: true },
@@ -369,7 +409,7 @@ test('treats linked watering timer as active valve source of truth', () => {
   assert.equal(valves[0].wateringFlow.timer.running, true);
 });
 
-test('does not treat open valve as active when linked timer is stopped', () => {
+test('treats open valve as active when linked timer is stopped', () => {
   const valves = [{ id: 'valve-1', on: true }];
   const flows = {
     flow1: {
@@ -391,7 +431,7 @@ test('does not treat open valve as active when linked timer is stopped', () => {
 
   enrichWateringValveFlows(valves, flows, {}, timers);
 
-  assert.equal(valves[0].wateringActive, false);
+  assert.equal(valves[0].wateringActive, true);
 });
 
 test('uses running closing timer as watering valve source of truth', () => {
@@ -421,4 +461,53 @@ test('uses running closing timer as watering valve source of truth', () => {
   assert.equal(valves[0].wateringFlow.timerName, 'Bed timer lukning');
   assert.deepEqual(valves[0].wateringFlow.timerNames, ['Bed timer', 'Bed timer lukning']);
   assert.equal(valves[0].wateringFlow.timer.running, true);
+});
+
+test('discovers typed watering variables referenced by an advanced flow', () => {
+  const valves = [{ id: 'valve-1', on: false }];
+  const advancedFlows = {
+    flow1: {
+      id: 'flow1',
+      name: 'Bed vanding',
+      enabled: true,
+      cards: {
+        valve: { ownerUri: 'homey:device:valve-1', id: 'homey:device:valve-1:onoff' },
+        timer: {
+          id: 'homey:app:nl.fellownet.chronograph:timer_start_v2',
+          args: { time: '[[homey:manager:logic|duration-id]]' },
+        },
+        max: { id: 'homey:manager:logic:lt', args: { comparator: '[[homey:manager:logic|max-id]]' } },
+        error: { id: 'homey:manager:logic:variable_set_boolean', args: { variable: { id: 'error-id' }, value: true } },
+      },
+    },
+  };
+  const logicVariables = {
+    'duration-id': {
+      id: 'duration-id', name: 'VAND Bed cyklus varighed', type: 'number', value: 5,
+    },
+    'max-id': {
+      id: 'max-id', name: 'VAND Bed max cyklusser', type: 'number', value: 4,
+    },
+    'error-id': {
+      id: 'error-id', name: 'VAND Bed vandingsfejl', type: 'boolean', value: true,
+    },
+    unrelated: {
+      id: 'unrelated', name: 'VAND Andet max cyklusser', type: 'number', value: 99,
+    },
+  };
+
+  enrichWateringValveFlows(valves, {}, advancedFlows, [], logicVariables);
+
+  assert.equal(valves[0].wateringFlow.durationVariable.id, 'duration-id');
+  assert.equal(valves[0].wateringFlow.maxCycleVariable.id, 'max-id');
+  assert.equal(valves[0].wateringFlow.errorVariable.id, 'error-id');
+  assert.equal(valves[0].wateringNeedsAttention, true);
+});
+
+test('validates watering maximum cycle bounds', () => {
+  assert.equal(normalizeWateringMaxCycles(1), 1);
+  assert.equal(normalizeWateringMaxCycles(100), 100);
+  assert.throws(() => normalizeWateringMaxCycles(0), /1 til 100/);
+  assert.throws(() => normalizeWateringMaxCycles(101), /1 til 100/);
+  assert.throws(() => normalizeWateringMaxCycles(2.5), /helt tal/);
 });

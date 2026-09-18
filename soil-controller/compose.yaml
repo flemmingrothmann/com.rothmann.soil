@@ -1,0 +1,43 @@
+services:
+  soil-controller:
+    build: .
+    container_name: homey-wingman-soil-controller
+    restart: unless-stopped
+    environment:
+      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_USERNAME: zigbee2mqtt
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set}
+      WINGMAN_URL: http://homey-wingman-ingest-service:8788
+      ZIGBEE2MQTT_URL: http://zigbee2mqtt:8080
+      INGEST_TOKEN: ${INGEST_TOKEN:?INGEST_TOKEN must be set}
+      SOIL_PROFILES_FILE: /config/profiles.json
+      ZIGBEE2MQTT_STATE_FILE: /zigbee2mqtt/state.json
+      HOME_ASSISTANT_PACKAGES_DIR: /home-assistant/packages
+      HOME_ASSISTANT_AUTOMATIONS_FILE: /home-assistant/config/automations.yaml
+      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-http://192.168.100.66:8123}
+      HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:?HOME_ASSISTANT_TOKEN must be set}
+      PORT: 8790
+    expose:
+      - "8790"
+    volumes:
+      - ./config:/config
+      - /opt/soil/zigbee2mqtt/data/state.json:/zigbee2mqtt/state.json:ro
+      - /var/lib/docker/volumes/home-assistant_home-assistant-config/_data/packages:/home-assistant/packages
+      - /var/lib/docker/volumes/home-assistant_home-assistant-config/_data:/home-assistant/config
+      - soil-controller-data:/data
+    networks:
+      - home-automation
+      - reverse-proxy
+      - wingman
+
+networks:
+  home-automation:
+    external: true
+  reverse-proxy:
+    external: true
+  wingman:
+    external: true
+    name: ingest-service_default
+
+volumes:
+  soil-controller-data:

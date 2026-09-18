@@ -1,0 +1,25 @@
+homeassistant:
+  enabled: true
+mqtt:
+  server: mqtt://mosquitto:1883
+  user: zigbee2mqtt
+  password: '!secret mqtt_password'
+serial:
+  port: /dev/ttyUSB0
+  adapter: zstack
+frontend:
+  enabled: true
+  port: 8080
+  host: 0.0.0.0
+  auth_token: '!secret frontend_auth_token'
+advanced:
+  channel: 25
+  permit_join: false
+  enable_external_js: true
+  log_level: info
+  network_key: GENERATE
+  pan_id: GENERATE
+  ext_pan_id: GENERATE
+  availability:
+    enabled: true
+device_options: {}

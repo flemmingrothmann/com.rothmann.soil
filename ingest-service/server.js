@@ -1,83 +1,106 @@
-'use strict';
+"use strict";
 
 /* eslint-disable no-console, no-use-before-define */
 
-const http = require('http');
-const { Pool } = require('pg');
+const http = require("http");
+const { Pool } = require("pg");
 
 const PORT = Number(process.env.PORT || 8788);
-const INGEST_TOKEN = process.env.INGEST_TOKEN || '';
-const DATABASE_URL = process.env.DATABASE_URL || 'postgres://homey_wingman:homey_wingman@postgres:5432/homey_wingman';
+const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  "postgres://homey_wingman:homey_wingman@postgres:5432/homey_wingman";
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024);
-const DEFAULT_PRICE_AREA = process.env.DEFAULT_PRICE_AREA || 'DK1';
-const PRICE_IMPORT_ENABLED = process.env.PRICE_IMPORT_ENABLED !== 'false';
-const PRICE_IMPORT_INTERVAL_MS = Number(process.env.PRICE_IMPORT_INTERVAL_MS || 6 * 60 * 60 * 1000);
-const PRICE_IMPORT_LOOKBACK_DAYS = Number(process.env.PRICE_IMPORT_LOOKBACK_DAYS || 3);
-const PRICE_IMPORT_LOOKAHEAD_DAYS = Number(process.env.PRICE_IMPORT_LOOKAHEAD_DAYS || 2);
-const ENERGY_USAGE_AUTO_REBUILD_ENABLED = process.env.ENERGY_USAGE_AUTO_REBUILD_ENABLED !== 'false';
-const ENERGY_USAGE_AUTO_REBUILD_INTERVAL_MS = Number(process.env.ENERGY_USAGE_AUTO_REBUILD_INTERVAL_MS || 5 * 60 * 1000);
-const ENERGY_USAGE_AUTO_REBUILD_LOOKBACK_DAYS = Number(process.env.ENERGY_USAGE_AUTO_REBUILD_LOOKBACK_DAYS || 45);
-const ELSPOT_API_URL = process.env.ELSPOT_API_URL || 'https://api.energidataservice.dk/dataset/Elspotprices';
-const ELSPOT_FALLBACK_API_URL = process.env.ELSPOT_FALLBACK_API_URL || 'https://www.elprisenligenu.dk/api/v1/prices';
-const ELSPOT_PRIMARY_ENABLED = process.env.ELSPOT_PRIMARY_ENABLED === 'true';
-const ELECTRICITY_TAX_DKK_PER_KWH = Number(process.env.ELECTRICITY_TAX_DKK_PER_KWH || 0);
+const DEFAULT_PRICE_AREA = process.env.DEFAULT_PRICE_AREA || "DK1";
+const PRICE_IMPORT_ENABLED = process.env.PRICE_IMPORT_ENABLED !== "false";
+const PRICE_IMPORT_INTERVAL_MS = Number(
+  process.env.PRICE_IMPORT_INTERVAL_MS || 6 * 60 * 60 * 1000,
+);
+const PRICE_IMPORT_LOOKBACK_DAYS = Number(
+  process.env.PRICE_IMPORT_LOOKBACK_DAYS || 3,
+);
+const PRICE_IMPORT_LOOKAHEAD_DAYS = Number(
+  process.env.PRICE_IMPORT_LOOKAHEAD_DAYS || 2,
+);
+const ENERGY_USAGE_AUTO_REBUILD_ENABLED =
+  process.env.ENERGY_USAGE_AUTO_REBUILD_ENABLED !== "false";
+const ENERGY_USAGE_AUTO_REBUILD_INTERVAL_MS = Number(
+  process.env.ENERGY_USAGE_AUTO_REBUILD_INTERVAL_MS || 5 * 60 * 1000,
+);
+const ENERGY_USAGE_AUTO_REBUILD_LOOKBACK_DAYS = Number(
+  process.env.ENERGY_USAGE_AUTO_REBUILD_LOOKBACK_DAYS || 45,
+);
+const ELSPOT_API_URL =
+  process.env.ELSPOT_API_URL ||
+  "https://api.energidataservice.dk/dataset/Elspotprices";
+const ELSPOT_FALLBACK_API_URL =
+  process.env.ELSPOT_FALLBACK_API_URL ||
+  "https://www.elprisenligenu.dk/api/v1/prices";
+const ELSPOT_PRIMARY_ENABLED = process.env.ELSPOT_PRIMARY_ENABLED === "true";
+const ELECTRICITY_TAX_DKK_PER_KWH = Number(
+  process.env.ELECTRICITY_TAX_DKK_PER_KWH || 0,
+);
 const VAT_RATE = Number(process.env.VAT_RATE || 0.25);
-const N1_TARIFF_RULES_JSON = process.env.N1_TARIFF_RULES_JSON || '[]';
-const DATAHUB_PRICELIST_API_URL = process.env.DATAHUB_PRICELIST_API_URL || 'https://api.energidataservice.dk/dataset/DatahubPricelist';
+const N1_TARIFF_RULES_JSON = process.env.N1_TARIFF_RULES_JSON || "[]";
+const DATAHUB_PRICELIST_API_URL =
+  process.env.DATAHUB_PRICELIST_API_URL ||
+  "https://api.energidataservice.dk/dataset/DatahubPricelist";
 const DEFAULT_DATAHUB_PRICE_COMPONENTS = [
   {
-    name: 'N1 nettarif C',
-    kind: 'grid',
-    gln: '5790001089030',
-    chargeType: 'D03',
-    chargeTypeCode: 'CD',
-    resolutionDuration: 'PT1H',
+    name: "N1 nettarif C",
+    kind: "grid",
+    gln: "5790001089030",
+    chargeType: "D03",
+    chargeTypeCode: "CD",
+    resolutionDuration: "PT1H",
   },
   {
-    name: 'Energinet transmissions nettarif',
-    kind: 'grid',
-    gln: '5790000432752',
-    chargeType: 'D03',
-    chargeTypeCode: '40000',
+    name: "Energinet transmissions nettarif",
+    kind: "grid",
+    gln: "5790000432752",
+    chargeType: "D03",
+    chargeTypeCode: "40000",
   },
   {
-    name: 'Energinet systemtarif',
-    kind: 'grid',
-    gln: '5790000432752',
-    chargeType: 'D03',
-    chargeTypeCode: '41000',
+    name: "Energinet systemtarif",
+    kind: "grid",
+    gln: "5790000432752",
+    chargeType: "D03",
+    chargeTypeCode: "41000",
   },
   {
-    name: 'Energinet nettabstarif DK1',
-    kind: 'grid',
-    gln: '5790000432752',
-    chargeType: 'D03',
-    chargeTypeCode: '40021',
-    resolutionDuration: 'PT1H',
+    name: "Energinet nettabstarif DK1",
+    kind: "grid",
+    gln: "5790000432752",
+    chargeType: "D03",
+    chargeTypeCode: "40021",
+    resolutionDuration: "PT1H",
   },
   {
-    name: 'Elafgift',
-    kind: 'tax',
-    gln: '5790000432752',
-    chargeType: 'D03',
-    chargeTypeCode: 'EA-001',
-    taxIndicator: '1',
+    name: "Elafgift",
+    kind: "tax",
+    gln: "5790000432752",
+    chargeType: "D03",
+    chargeTypeCode: "EA-001",
+    taxIndicator: "1",
   },
 ];
-const DATAHUB_PRICE_COMPONENTS_JSON = process.env.DATAHUB_PRICE_COMPONENTS_JSON || JSON.stringify(DEFAULT_DATAHUB_PRICE_COMPONENTS);
-const ENERGY_CAPABILITIES = ['meter_power', 'meter_power.imported'];
+const DATAHUB_PRICE_COMPONENTS_JSON =
+  process.env.DATAHUB_PRICE_COMPONENTS_JSON ||
+  JSON.stringify(DEFAULT_DATAHUB_PRICE_COMPONENTS);
+const ENERGY_CAPABILITIES = ["meter_power", "meter_power.imported"];
 const ENERGY_INTERVALS = new Map([
-  ['15m', '15 minutes'],
-  ['15min', '15 minutes'],
-  ['15 minutes', '15 minutes'],
-  ['hour', '1 hour'],
-  ['1h', '1 hour'],
-  ['1 hour', '1 hour'],
-  ['day', '1 day'],
-  ['1d', '1 day'],
-  ['1 day', '1 day'],
-  ['month', '1 month'],
-  ['1 month', '1 month'],
+  ["15m", "15 minutes"],
+  ["15min", "15 minutes"],
+  ["15 minutes", "15 minutes"],
+  ["hour", "1 hour"],
+  ["1h", "1 hour"],
+  ["1 hour", "1 hour"],
+  ["day", "1 day"],
+  ["1d", "1 day"],
+  ["1 day", "1 day"],
+  ["month", "1 month"],
+  ["1 month", "1 month"],
 ]);
 
 const pool = new Pool({ connectionString: DATABASE_URL });
@@ -85,8 +108,8 @@ const energyUsageAutoRebuilds = new Map();
 
 function sendJson(response, statusCode, data) {
   response.writeHead(statusCode, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
   });
   response.end(JSON.stringify(data));
 }
@@ -98,23 +121,23 @@ function sendError(response, statusCode, message) {
 function isAuthorized(request) {
   if (!INGEST_TOKEN) return false;
 
-  const authorization = request.headers.authorization || '';
+  const authorization = request.headers.authorization || "";
   if (authorization === `Bearer ${INGEST_TOKEN}`) return true;
-  return request.headers['x-ingest-token'] === INGEST_TOKEN;
+  return request.headers["x-ingest-token"] === INGEST_TOKEN;
 }
 
 function readRequestBody(request) {
   return new Promise((resolve, reject) => {
-    let body = '';
-    request.on('data', (chunk) => {
+    let body = "";
+    request.on("data", (chunk) => {
       body += chunk;
       if (body.length > MAX_BODY_BYTES) {
-        reject(new Error('Request body is too large'));
+        reject(new Error("Request body is too large"));
         request.destroy();
       }
     });
-    request.on('end', () => resolve(body));
-    request.on('error', reject);
+    request.on("end", () => resolve(body));
+    request.on("error", reject);
   });
 }
 
@@ -225,6 +248,25 @@ async function initializeDatabase() {
     create table if not exists homey_logic_variable (
       id text primary key,
       name text not null,
+      payload jsonb not null,
+      synced_at timestamptz not null default now()
+    );
+
+    create table if not exists external_zone (
+      id text primary key,
+      name text not null,
+      payload jsonb not null default '{}'::jsonb,
+      synced_at timestamptz not null default now()
+    );
+
+    create table if not exists external_device (
+      id text primary key,
+      name text not null,
+      zone_id text,
+      driver_id text,
+      device_class text,
+      available boolean not null default true,
+      capabilities text[] not null default '{}',
       payload jsonb not null,
       synced_at timestamptz not null default now()
     );
@@ -387,33 +429,44 @@ async function migrateIngestEventToHypertable() {
 }
 
 function normalizeEvent(payload) {
-  const eventTime = payload.time || payload.timestamp || payload.event_time || new Date().toISOString();
-  const homeyDeviceId = payload.homey_device_id || payload.deviceId || payload.device_id;
+  const eventTime =
+    payload.time ||
+    payload.timestamp ||
+    payload.event_time ||
+    new Date().toISOString();
+  const homeyDeviceId =
+    payload.homey_device_id || payload.deviceId || payload.device_id;
   const { capability, value } = payload;
 
   if (!homeyDeviceId) {
-    throw new Error('homey_device_id is required');
+    throw new Error("homey_device_id is required");
   }
   if (!capability) {
-    throw new Error('capability is required');
+    throw new Error("capability is required");
   }
   if (Number.isNaN(Date.parse(eventTime))) {
-    throw new Error('time must be a valid timestamp');
+    throw new Error("time must be a valid timestamp");
   }
 
-  const valueNumber = typeof value === 'number' && Number.isFinite(value) ? value : null;
-  const valueBoolean = typeof value === 'boolean' ? value : null;
-  const sourceSystem = String(payload.source_system || payload.sourceSystem || 'homey').trim();
-  const eventType = String(payload.event_type || payload.eventType || 'observation').trim();
-  if (!sourceSystem) throw new Error('source_system must not be empty');
-  if (!['observation', 'command'].includes(eventType)) {
-    throw new Error('event_type must be observation or command');
+  const valueNumber =
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const valueBoolean = typeof value === "boolean" ? value : null;
+  const sourceSystem = String(
+    payload.source_system || payload.sourceSystem || "homey",
+  ).trim();
+  const eventType = String(
+    payload.event_type || payload.eventType || "observation",
+  ).trim();
+  if (!sourceSystem) throw new Error("source_system must not be empty");
+  if (!["observation", "command"].includes(eventType)) {
+    throw new Error("event_type must be observation or command");
   }
 
   return {
     eventTime,
     homeyDeviceId,
-    homeyZoneId: payload.homey_zone_id || payload.zoneId || payload.zone_id || null,
+    homeyZoneId:
+      payload.homey_zone_id || payload.zoneId || payload.zone_id || null,
     deviceName: payload.device_name || payload.deviceName || null,
     driverId: payload.driver_id || payload.driverId || null,
     deviceClass: payload.device_class || payload.deviceClass || null,
@@ -422,7 +475,8 @@ function normalizeEvent(payload) {
     valueNumber,
     valueBoolean,
     unit: payload.unit || null,
-    available: typeof payload.available === 'boolean' ? payload.available : null,
+    available:
+      typeof payload.available === "boolean" ? payload.available : null,
     sourceSystem,
     sourceInstance: payload.source_instance || payload.sourceInstance || null,
     sourceEventId: payload.source_event_id || payload.sourceEventId || null,
@@ -448,7 +502,7 @@ function parseOptionalTimestamp(value, fieldName) {
 }
 
 function parseOptionalNumber(value, fieldName) {
-  if (value === null || value === undefined || value === '') return null;
+  if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     throw new Error(`${fieldName} must be a number`);
@@ -457,24 +511,44 @@ function parseOptionalNumber(value, fieldName) {
 }
 
 function normalizePriceInterval(payload) {
-  const startsAt = parseTimestamp(payload.startsAt || payload.start || payload.from, 'start');
-  const endsAt = parseTimestamp(payload.endsAt || payload.end || payload.to, 'end');
+  const startsAt = parseTimestamp(
+    payload.startsAt || payload.start || payload.from,
+    "start",
+  );
+  const endsAt = parseTimestamp(
+    payload.endsAt || payload.end || payload.to,
+    "end",
+  );
   if (Date.parse(endsAt) <= Date.parse(startsAt)) {
-    throw new Error('end must be after start');
+    throw new Error("end must be after start");
   }
 
-  const spot = parseOptionalNumber(payload.spotDkkPerKwh ?? payload.spot, 'spotDkkPerKwh');
-  const gridTariff = parseOptionalNumber(payload.gridTariffDkkPerKwh ?? payload.gridTariff, 'gridTariffDkkPerKwh');
-  const taxes = parseOptionalNumber(payload.taxesDkkPerKwh ?? payload.taxes, 'taxesDkkPerKwh');
-  const vatRate = parseOptionalNumber(payload.vatRate, 'vatRate');
-  let effective = parseOptionalNumber(payload.effectiveDkkPerKwh ?? payload.effective, 'effectiveDkkPerKwh');
+  const spot = parseOptionalNumber(
+    payload.spotDkkPerKwh ?? payload.spot,
+    "spotDkkPerKwh",
+  );
+  const gridTariff = parseOptionalNumber(
+    payload.gridTariffDkkPerKwh ?? payload.gridTariff,
+    "gridTariffDkkPerKwh",
+  );
+  const taxes = parseOptionalNumber(
+    payload.taxesDkkPerKwh ?? payload.taxes,
+    "taxesDkkPerKwh",
+  );
+  const vatRate = parseOptionalNumber(payload.vatRate, "vatRate");
+  let effective = parseOptionalNumber(
+    payload.effectiveDkkPerKwh ?? payload.effective,
+    "effectiveDkkPerKwh",
+  );
 
   if (effective === null) {
     const net = (spot || 0) + (gridTariff || 0) + (taxes || 0);
     effective = vatRate === null ? net : net * (1 + vatRate);
   }
   if (!Number.isFinite(effective)) {
-    throw new Error('effectiveDkkPerKwh is required when price components are missing');
+    throw new Error(
+      "effectiveDkkPerKwh is required when price components are missing",
+    );
   }
 
   return {
@@ -486,17 +560,17 @@ function normalizePriceInterval(payload) {
     taxes,
     vatRate,
     effective,
-    currency: payload.currency || 'DKK',
+    currency: payload.currency || "DKK",
     source: payload.source || null,
     payload,
   };
 }
 
 function getEnergyInterval(value) {
-  const key = (value || 'hour').toLowerCase();
+  const key = (value || "hour").toLowerCase();
   const interval = ENERGY_INTERVALS.get(key);
   if (!interval) {
-    throw new Error('interval must be one of 15m, hour, day or month');
+    throw new Error("interval must be one of 15m, hour, day or month");
   }
   return interval;
 }
@@ -524,12 +598,27 @@ function getN1TariffDkkPerKwh(date) {
   const month = date.getUTCMonth() + 1;
   const hour = date.getUTCHours();
   const match = rules.find((rule) => {
-    const monthMatches = matchesWrappedRange(month, rule.fromMonth, rule.toMonth, 13);
-    const hourMatches = matchesWrappedRange(hour, rule.fromHour, rule.toHour, 24);
+    const monthMatches = matchesWrappedRange(
+      month,
+      rule.fromMonth,
+      rule.toMonth,
+      13,
+    );
+    const hourMatches = matchesWrappedRange(
+      hour,
+      rule.fromHour,
+      rule.toHour,
+      24,
+    );
     return monthMatches && hourMatches;
   });
 
-  return parseOptionalNumber(match?.gridTariffDkkPerKwh ?? match?.tariffDkkPerKwh, 'gridTariffDkkPerKwh') || 0;
+  return (
+    parseOptionalNumber(
+      match?.gridTariffDkkPerKwh ?? match?.tariffDkkPerKwh,
+      "gridTariffDkkPerKwh",
+    ) || 0
+  );
 }
 
 function getDatahubPriceComponents() {
@@ -537,29 +626,33 @@ function getDatahubPriceComponents() {
     const components = JSON.parse(DATAHUB_PRICE_COMPONENTS_JSON);
     return Array.isArray(components) ? components : [];
   } catch (error) {
-    console.warn(`Ignoring invalid DATAHUB_PRICE_COMPONENTS_JSON: ${error.message}`);
+    console.warn(
+      `Ignoring invalid DATAHUB_PRICE_COMPONENTS_JSON: ${error.message}`,
+    );
     return [];
   }
 }
 
 function getDanishHourPriceField(date) {
-  const hour = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Copenhagen',
-    hour: '2-digit',
-    hourCycle: 'h23',
+  const hour = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Copenhagen",
+    hour: "2-digit",
+    hourCycle: "h23",
   }).format(date);
   return `Price${Number(hour) + 1}`;
 }
 
 function isDatahubRowValidFor(row, date) {
   const validFrom = Date.parse(row.ValidFrom);
-  const validTo = row.ValidTo ? Date.parse(row.ValidTo) : Number.POSITIVE_INFINITY;
+  const validTo = row.ValidTo
+    ? Date.parse(row.ValidTo)
+    : Number.POSITIVE_INFINITY;
   const time = date.getTime();
   return Number.isFinite(validFrom) && time >= validFrom && time < validTo;
 }
 
 function getDatahubRowPriceForDate(row, date) {
-  if (row.ResolutionDuration !== 'PT1H') {
+  if (row.ResolutionDuration !== "PT1H") {
     const dailyValue = Number(row.Price1);
     return Number.isFinite(dailyValue) ? dailyValue : 0;
   }
@@ -571,38 +664,51 @@ function getDatahubRowPriceForDate(row, date) {
 
 function buildDatahubComponentFilter(component) {
   const filter = {};
-  if (component.gln || component.glnNumber) filter.GLN_Number = component.gln || component.glnNumber;
+  if (component.gln || component.glnNumber)
+    filter.GLN_Number = component.gln || component.glnNumber;
   if (component.chargeOwner) filter.ChargeOwner = component.chargeOwner;
   if (component.chargeType) filter.ChargeType = component.chargeType;
-  if (component.chargeTypeCode) filter.ChargeTypeCode = component.chargeTypeCode;
-  if (component.taxIndicator !== undefined) filter.TaxIndicator = String(component.taxIndicator);
+  if (component.chargeTypeCode)
+    filter.ChargeTypeCode = component.chargeTypeCode;
+  if (component.taxIndicator !== undefined)
+    filter.TaxIndicator = String(component.taxIndicator);
   return filter;
 }
 
 function datahubRowMatchesComponent(row, component) {
   if (component.descriptionIncludes) {
-    const description = `${row.Note || ''} ${row.Description || ''}`.toLowerCase();
-    if (!description.includes(String(component.descriptionIncludes).toLowerCase())) return false;
+    const description =
+      `${row.Note || ""} ${row.Description || ""}`.toLowerCase();
+    if (
+      !description.includes(String(component.descriptionIncludes).toLowerCase())
+    )
+      return false;
   }
-  if (component.resolutionDuration && row.ResolutionDuration !== component.resolutionDuration) return false;
+  if (
+    component.resolutionDuration &&
+    row.ResolutionDuration !== component.resolutionDuration
+  )
+    return false;
   return true;
 }
 
 async function fetchDatahubComponentRows(component) {
   const url = new URL(DATAHUB_PRICELIST_API_URL);
-  url.searchParams.set('limit', String(component.limit || 1000));
-  url.searchParams.set('sort', 'ValidFrom DESC');
+  url.searchParams.set("limit", String(component.limit || 1000));
+  url.searchParams.set("sort", "ValidFrom DESC");
 
   const filter = buildDatahubComponentFilter(component);
   if (Object.keys(filter).length > 0) {
-    url.searchParams.set('filter', JSON.stringify(filter));
+    url.searchParams.set("filter", JSON.stringify(filter));
   }
   if (component.q) {
-    url.searchParams.set('q', component.q);
+    url.searchParams.set("q", component.q);
   }
 
   const json = await fetchJson(url);
-  return (Array.isArray(json.records) ? json.records : []).filter((row) => datahubRowMatchesComponent(row, component));
+  return (Array.isArray(json.records) ? json.records : []).filter((row) =>
+    datahubRowMatchesComponent(row, component),
+  );
 }
 
 async function fetchDatahubComponentRowMap() {
@@ -611,9 +717,14 @@ async function fetchDatahubComponentRowMap() {
 
   for (const component of components) {
     try {
-      result.push({ component, rows: await fetchDatahubComponentRows(component) });
+      result.push({
+        component,
+        rows: await fetchDatahubComponentRows(component),
+      });
     } catch (error) {
-      console.warn(`Datahub component ${component.name || component.chargeTypeCode || 'unknown'} failed: ${error.message || error}`);
+      console.warn(
+        `Datahub component ${component.name || component.chargeTypeCode || "unknown"} failed: ${error.message || error}`,
+      );
       result.push({ component, rows: [] });
     }
   }
@@ -634,9 +745,10 @@ function calculateDatahubComponentsForDate(componentRows, date) {
     if (!row) continue;
 
     const value = getDatahubRowPriceForDate(row, date);
-    const kind = component.kind || (Number(row.TaxIndicator) === 1 ? 'tax' : 'grid');
-    if (kind === 'tax') result.taxes += value;
-    else if (kind === 'grid') result.gridTariff += value;
+    const kind =
+      component.kind || (Number(row.TaxIndicator) === 1 ? "tax" : "grid");
+    if (kind === "tax") result.taxes += value;
+    else if (kind === "grid") result.gridTariff += value;
     else result.other += value;
 
     result.applied.push({
@@ -662,7 +774,9 @@ function toEnergyDataServiceDate(date) {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url, { headers: { accept: 'application/json' } });
+  const response = await fetch(url, {
+    headers: { accept: "application/json" },
+  });
   if (!response.ok) {
     throw new Error(`GET ${url} failed with ${response.status}`);
   }
@@ -676,31 +790,43 @@ async function fetchElspotPrices({ from, to, priceArea }) {
   for (const day of missingDays) {
     if (!ELSPOT_PRIMARY_ENABLED) {
       try {
-        records.push(...await fetchFallbackElspotDay({
-          day,
-          priceArea,
-          from,
-          to,
-        }));
+        records.push(
+          ...(await fetchFallbackElspotDay({
+            day,
+            priceArea,
+            from,
+            to,
+          })),
+        );
       } catch (error) {
-        console.warn(`Elspot fallback skipped ${day.year}-${day.month}-${day.day}: ${error.message || error}`);
+        console.warn(
+          `Elspot fallback skipped ${day.year}-${day.month}-${day.day}: ${error.message || error}`,
+        );
       }
       continue;
     }
 
     try {
-      records.push(...await fetchEnergyDataServiceElspotDay({ day, priceArea }));
+      records.push(
+        ...(await fetchEnergyDataServiceElspotDay({ day, priceArea })),
+      );
     } catch (error) {
-      console.warn(`Elspot primary source failed for ${day.year}-${day.month}-${day.day}, using fallback: ${error.message || error}`);
+      console.warn(
+        `Elspot primary source failed for ${day.year}-${day.month}-${day.day}, using fallback: ${error.message || error}`,
+      );
       try {
-        records.push(...await fetchFallbackElspotDay({
-          day,
-          priceArea,
-          from,
-          to,
-        }));
+        records.push(
+          ...(await fetchFallbackElspotDay({
+            day,
+            priceArea,
+            from,
+            to,
+          })),
+        );
       } catch (fallbackError) {
-        console.warn(`Elspot fallback skipped ${day.year}-${day.month}-${day.day}: ${fallbackError.message || fallbackError}`);
+        console.warn(
+          `Elspot fallback skipped ${day.year}-${day.month}-${day.day}: ${fallbackError.message || fallbackError}`,
+        );
       }
     }
   }
@@ -715,10 +841,14 @@ function getUtcDateKeysBetween(from, to) {
   const end = new Date(to);
   end.setUTCHours(0, 0, 0, 0);
 
-  for (let current = start; current <= end; current = new Date(current.getTime() + 24 * 60 * 60 * 1000)) {
+  for (
+    let current = start;
+    current <= end;
+    current = new Date(current.getTime() + 24 * 60 * 60 * 1000)
+  ) {
     const year = current.getUTCFullYear();
-    const month = String(current.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(current.getUTCDate()).padStart(2, '0');
+    const month = String(current.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(current.getUTCDate()).padStart(2, "0");
     keys.push({ year, month, day });
   }
   return keys;
@@ -730,14 +860,19 @@ async function getMissingPriceDays({ from, to, priceArea }) {
 
   for (const day of days) {
     const dayStart = `${day.year}-${day.month}-${day.day}T00:00:00.000Z`;
-    const dayEnd = new Date(Date.parse(dayStart) + 24 * 60 * 60 * 1000).toISOString();
-    const result = await pool.query(`
+    const dayEnd = new Date(
+      Date.parse(dayStart) + 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const result = await pool.query(
+      `
       select count(*)::integer as intervals
       from price_interval
       where price_area = $1
         and starts_at >= $2
         and starts_at < $3
-    `, [priceArea, dayStart, dayEnd]);
+    `,
+      [priceArea, dayStart, dayEnd],
+    );
 
     if ((result.rows[0]?.intervals || 0) < 20) {
       missing.push(day);
@@ -749,48 +884,52 @@ async function getMissingPriceDays({ from, to, priceArea }) {
 
 async function fetchEnergyDataServiceElspotDay({ day, priceArea }) {
   const from = `${day.year}-${day.month}-${day.day}T00:00:00`;
-  const to = new Date(Date.parse(`${day.year}-${day.month}-${day.day}T00:00:00.000Z`) + 24 * 60 * 60 * 1000);
+  const to = new Date(
+    Date.parse(`${day.year}-${day.month}-${day.day}T00:00:00.000Z`) +
+      24 * 60 * 60 * 1000,
+  );
   const url = new URL(ELSPOT_API_URL);
-  url.searchParams.set('limit', '100');
-  url.searchParams.set('sort', 'HourUTC ASC');
-  url.searchParams.set('start', from);
-  url.searchParams.set('end', toEnergyDataServiceDate(to));
-  url.searchParams.set('filter', JSON.stringify({ PriceArea: priceArea }));
+  url.searchParams.set("limit", "100");
+  url.searchParams.set("sort", "HourUTC ASC");
+  url.searchParams.set("start", from);
+  url.searchParams.set("end", toEnergyDataServiceDate(to));
+  url.searchParams.set("filter", JSON.stringify({ PriceArea: priceArea }));
 
   const json = await fetchJson(url);
   return (Array.isArray(json.records) ? json.records : []).map((record) => {
-    const startsAt = parseTimestamp(record.HourUTC, 'HourUTC');
+    const startsAt = parseTimestamp(record.HourUTC, "HourUTC");
     return {
       startsAt,
       endsAt: new Date(Date.parse(startsAt) + 60 * 60 * 1000).toISOString(),
       spotDkkPerKwh: Number(record.SpotPriceDKK) / 1000,
-      source: 'energidataservice-elspotprices',
+      source: "energidataservice-elspotprices",
       payload: record,
     };
   });
 }
 
-async function fetchFallbackElspotDay({
-  day,
-  priceArea,
-  from,
-  to,
-}) {
+async function fetchFallbackElspotDay({ day, priceArea, from, to }) {
   const url = `${ELSPOT_FALLBACK_API_URL}/${day.year}/${day.month}-${day.day}_${priceArea}.json`;
   const json = await fetchJson(url);
   if (!Array.isArray(json)) return [];
 
-  return json.map((record) => {
-    const startsAt = parseTimestamp(record.time_start, 'time_start');
-    const endsAt = parseTimestamp(record.time_end, 'time_end');
-    return {
-      startsAt,
-      endsAt,
-      spotDkkPerKwh: Number(record.DKK_per_kWh),
-      source: 'elprisenligenu-nordpool-fallback',
-      payload: record,
-    };
-  }).filter((record) => Date.parse(record.endsAt) > Date.parse(from) && Date.parse(record.startsAt) < Date.parse(to));
+  return json
+    .map((record) => {
+      const startsAt = parseTimestamp(record.time_start, "time_start");
+      const endsAt = parseTimestamp(record.time_end, "time_end");
+      return {
+        startsAt,
+        endsAt,
+        spotDkkPerKwh: Number(record.DKK_per_kWh),
+        source: "elprisenligenu-nordpool-fallback",
+        payload: record,
+      };
+    })
+    .filter(
+      (record) =>
+        Date.parse(record.endsAt) > Date.parse(from) &&
+        Date.parse(record.startsAt) < Date.parse(to),
+    );
 }
 
 async function importEnergyPrices({ from, to, priceArea }) {
@@ -800,7 +939,7 @@ async function importEnergyPrices({ from, to, priceArea }) {
   const client = await pool.connect();
 
   try {
-    await client.query('begin');
+    await client.query("begin");
     for (const record of records) {
       const { startsAt, endsAt, spotDkkPerKwh } = record;
       if (!Number.isFinite(spotDkkPerKwh)) continue;
@@ -827,13 +966,15 @@ async function importEnergyPrices({ from, to, priceArea }) {
           spotDkkPerKwh,
           datahubComponentsConfigured: hasDatahubComponents,
           datahubComponentsApplied: datahubComponents?.applied || [],
-          n1TariffRulesConfigured: !hasDatahubComponents && getN1TariffRules().length > 0,
+          n1TariffRulesConfigured:
+            !hasDatahubComponents && getN1TariffRules().length > 0,
           electricityTaxDkkPerKwh: taxes,
           vatRate,
         },
       };
 
-      await client.query(`
+      await client.query(
+        `
         insert into price_interval (
           price_area, starts_at, ends_at, spot_dkk_per_kwh, grid_tariff_dkk_per_kwh,
           taxes_dkk_per_kwh, vat_rate, effective_dkk_per_kwh, currency, source, payload, updated_at
@@ -849,76 +990,85 @@ async function importEnergyPrices({ from, to, priceArea }) {
           source = excluded.source,
           payload = excluded.payload,
           updated_at = excluded.updated_at
-      `, [
-        priceArea,
-        startsAt,
-        endsAt,
-        spotDkkPerKwh,
-        gridTariff,
-        taxes,
-        vatRate,
-        effective,
-        record.source,
-        JSON.stringify(payload),
-      ]);
+      `,
+        [
+          priceArea,
+          startsAt,
+          endsAt,
+          spotDkkPerKwh,
+          gridTariff,
+          taxes,
+          vatRate,
+          effective,
+          record.source,
+          JSON.stringify(payload),
+        ],
+      );
     }
-    await client.query('commit');
+    await client.query("commit");
   } catch (error) {
-    await client.query('rollback');
+    await client.query("rollback");
     throw error;
   } finally {
     client.release();
   }
 
-  const buckets = records.length > 0
-    ? await rebuildEnergyUsage({ from, to, priceArea })
-    : 0;
+  const buckets =
+    records.length > 0 ? await rebuildEnergyUsage({ from, to, priceArea }) : 0;
   return { imported: records.length, buckets };
 }
 
 function getDefaultPriceImportWindow() {
   const now = Date.now();
   return {
-    from: new Date(now - PRICE_IMPORT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString(),
-    to: new Date(now + PRICE_IMPORT_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+    from: new Date(
+      now - PRICE_IMPORT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString(),
+    to: new Date(
+      now + PRICE_IMPORT_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString(),
     priceArea: DEFAULT_PRICE_AREA,
   };
 }
 
 async function insertEvent(client, event) {
-  await client.query(`
+  await client.query(
+    `
     insert into ingest_event (
       event_time, homey_device_id, homey_zone_id, device_name, driver_id, device_class,
       capability, value_json, value_number, value_boolean, unit, available, source_system,
       source_instance, source_event_id, author_system, event_type, causation_id, correlation_id, replay_run_id, payload
     ) values ($1, $2, $3, $4, $5, $6, $7, to_jsonb($8::json), $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb)
-  `, [
-    event.eventTime,
-    event.homeyDeviceId,
-    event.homeyZoneId,
-    event.deviceName,
-    event.driverId,
-    event.deviceClass,
-    event.capability,
-    JSON.stringify(event.value),
-    event.valueNumber,
-    event.valueBoolean,
-    event.unit,
-    event.available,
-    event.sourceSystem,
-    event.sourceInstance,
-    event.sourceEventId,
-    event.authorSystem,
-    event.eventType,
-    event.causationId,
-    event.correlationId,
-    event.replayRunId,
-    JSON.stringify(event.payload),
-  ]);
+  `,
+    [
+      event.eventTime,
+      event.homeyDeviceId,
+      event.homeyZoneId,
+      event.deviceName,
+      event.driverId,
+      event.deviceClass,
+      event.capability,
+      JSON.stringify(event.value),
+      event.valueNumber,
+      event.valueBoolean,
+      event.unit,
+      event.available,
+      event.sourceSystem,
+      event.sourceInstance,
+      event.sourceEventId,
+      event.authorSystem,
+      event.eventType,
+      event.causationId,
+      event.correlationId,
+      event.replayRunId,
+      JSON.stringify(event.payload),
+    ],
+  );
 
-  if (event.eventType === 'command') return;
+  if (event.eventType === "command") return;
 
-  await client.query(`
+  await client.query(
+    `
     insert into state_current (
       homey_device_id, capability, event_time, received_at, homey_zone_id, device_name,
       driver_id, device_class, value_json, value_number, value_boolean, unit, available, source_system,
@@ -946,34 +1096,36 @@ async function insertEvent(client, event) {
       replay_run_id = excluded.replay_run_id,
       payload = excluded.payload
     where state_current.event_time <= excluded.event_time
-  `, [
-    event.homeyDeviceId,
-    event.capability,
-    event.eventTime,
-    event.homeyZoneId,
-    event.deviceName,
-    event.driverId,
-    event.deviceClass,
-    JSON.stringify(event.value),
-    event.valueNumber,
-    event.valueBoolean,
-    event.unit,
-    event.available,
-    event.sourceSystem,
-    event.sourceInstance,
-    event.sourceEventId,
-    event.authorSystem,
-    event.eventType,
-    event.causationId,
-    event.correlationId,
-    event.replayRunId,
-    JSON.stringify(event.payload),
-  ]);
+  `,
+    [
+      event.homeyDeviceId,
+      event.capability,
+      event.eventTime,
+      event.homeyZoneId,
+      event.deviceName,
+      event.driverId,
+      event.deviceClass,
+      JSON.stringify(event.value),
+      event.valueNumber,
+      event.valueBoolean,
+      event.unit,
+      event.available,
+      event.sourceSystem,
+      event.sourceInstance,
+      event.sourceEventId,
+      event.authorSystem,
+      event.eventType,
+      event.causationId,
+      event.correlationId,
+      event.replayRunId,
+      JSON.stringify(event.payload),
+    ],
+  );
 }
 
 async function handleIngest(request, response) {
   if (!isAuthorized(request)) {
-    sendError(response, 401, 'Unauthorized');
+    sendError(response, 401, "Unauthorized");
     return;
   }
 
@@ -984,13 +1136,13 @@ async function handleIngest(request, response) {
   const client = await pool.connect();
 
   try {
-    await client.query('begin');
+    await client.query("begin");
     for (const event of events) {
       await insertEvent(client, event);
     }
-    await client.query('commit');
+    await client.query("commit");
   } catch (error) {
-    await client.query('rollback');
+    await client.query("rollback");
     throw error;
   } finally {
     client.release();
@@ -1012,7 +1164,7 @@ function getZigbeeBucketStart(value = new Date()) {
 
 async function handleZigbeeRouteSnapshot(request, response) {
   if (!isAuthorized(request)) {
-    sendError(response, 401, 'Unauthorized');
+    sendError(response, 401, "Unauthorized");
     return;
   }
 
@@ -1024,9 +1176,10 @@ async function handleZigbeeRouteSnapshot(request, response) {
   const client = await pool.connect();
 
   try {
-    await client.query('begin');
+    await client.query("begin");
     for (const node of nodes) {
-      await client.query(`
+      await client.query(
+        `
         insert into zigbee_route_node_observation (
           bucket_start, node_id, label, category, node_type, address_label, zone, zone_short,
           last_seen, available, child_count, payload, observed_at
@@ -1043,24 +1196,29 @@ async function handleZigbeeRouteSnapshot(request, response) {
           child_count = excluded.child_count,
           payload = excluded.payload,
           observed_at = excluded.observed_at
-      `, [
-        bucketStart,
-        String(node.id),
-        node.label || null,
-        node.category || null,
-        node.type || null,
-        node.addressLabel || null,
-        node.zone || null,
-        node.zoneShort || null,
-        node.lastSeen || null,
-        node.available,
-        Number.isFinite(Number(node.childCount)) ? Number(node.childCount) : null,
-        JSON.stringify(node),
-      ]);
+      `,
+        [
+          bucketStart,
+          String(node.id),
+          node.label || null,
+          node.category || null,
+          node.type || null,
+          node.addressLabel || null,
+          node.zone || null,
+          node.zoneShort || null,
+          node.lastSeen || null,
+          node.available,
+          Number.isFinite(Number(node.childCount))
+            ? Number(node.childCount)
+            : null,
+          JSON.stringify(node),
+        ],
+      );
     }
 
     for (const link of links) {
-      await client.query(`
+      await client.query(
+        `
         insert into zigbee_route_edge_observation (
           bucket_start, source_id, target_id, source_category, route_depth, payload, observed_at
         ) values ($1, $2, $3, $4, $5, $6::jsonb, now())
@@ -1069,18 +1227,20 @@ async function handleZigbeeRouteSnapshot(request, response) {
           route_depth = excluded.route_depth,
           payload = excluded.payload,
           observed_at = excluded.observed_at
-      `, [
-        bucketStart,
-        String(link.source),
-        String(link.target),
-        link.sourceCategory || null,
-        Number.isFinite(Number(link.depth)) ? Number(link.depth) : null,
-        JSON.stringify(link),
-      ]);
+      `,
+        [
+          bucketStart,
+          String(link.source),
+          String(link.target),
+          link.sourceCategory || null,
+          Number.isFinite(Number(link.depth)) ? Number(link.depth) : null,
+          JSON.stringify(link),
+        ],
+      );
     }
-    await client.query('commit');
+    await client.query("commit");
   } catch (error) {
-    await client.query('rollback');
+    await client.query("rollback");
     throw error;
   } finally {
     client.release();
@@ -1095,10 +1255,14 @@ async function handleZigbeeRouteSnapshot(request, response) {
 }
 
 async function getZigbeeRouteHistory(requestUrl, response) {
-  const days = Math.max(1, Math.min(30, Number(requestUrl.searchParams.get('days') || 7)));
+  const days = Math.max(
+    1,
+    Math.min(30, Number(requestUrl.searchParams.get("days") || 7)),
+  );
   const params = [days];
   const [nodes, edges, layout] = await Promise.all([
-    pool.query(`
+    pool.query(
+      `
       with recent_nodes as (
         select *
         from zigbee_route_node_observation
@@ -1134,8 +1298,11 @@ async function getZigbeeRouteHistory(requestUrl, response) {
       from latest_nodes latest
       left join latest_known_nodes known on known.node_id = latest.node_id
       order by latest.node_id
-    `, params),
-    pool.query(`
+    `,
+      params,
+    ),
+    pool.query(
+      `
       with ranked_edges as (
         select source_id,
           target_id,
@@ -1157,8 +1324,10 @@ async function getZigbeeRouteHistory(requestUrl, response) {
       from ranked_edges
       where row_number = 1
       order by observations desc, source_id, target_id
-    `, params),
-    pool.query('select node_id as id, x, y, updated_at from zigbee_map_layout'),
+    `,
+      params,
+    ),
+    pool.query("select node_id as id, x, y, updated_at from zigbee_map_layout"),
   ]);
 
   sendJson(response, 200, {
@@ -1171,13 +1340,18 @@ async function getZigbeeRouteHistory(requestUrl, response) {
 }
 
 async function getZigbeeLayout(response) {
-  const result = await pool.query('select node_id as id, x, y, updated_at from zigbee_map_layout order by node_id');
-  sendJson(response, 200, { generatedAt: new Date().toISOString(), layout: result.rows });
+  const result = await pool.query(
+    "select node_id as id, x, y, updated_at from zigbee_map_layout order by node_id",
+  );
+  sendJson(response, 200, {
+    generatedAt: new Date().toISOString(),
+    layout: result.rows,
+  });
 }
 
 async function putZigbeeLayout(request, response) {
   if (!isAuthorized(request)) {
-    sendError(response, 401, 'Unauthorized');
+    sendError(response, 401, "Unauthorized");
     return;
   }
 
@@ -1187,24 +1361,32 @@ async function putZigbeeLayout(request, response) {
   const client = await pool.connect();
 
   try {
-    await client.query('begin');
+    await client.query("begin");
     if (parsed.clear === true) {
-      await client.query('delete from zigbee_map_layout');
+      await client.query("delete from zigbee_map_layout");
     }
     for (const item of layout) {
-      if (!item.id || !Number.isFinite(Number(item.x)) || !Number.isFinite(Number(item.y))) continue;
-      await client.query(`
+      if (
+        !item.id ||
+        !Number.isFinite(Number(item.x)) ||
+        !Number.isFinite(Number(item.y))
+      )
+        continue;
+      await client.query(
+        `
         insert into zigbee_map_layout (node_id, x, y, updated_at)
         values ($1, $2, $3, now())
         on conflict (node_id) do update set
           x = excluded.x,
           y = excluded.y,
           updated_at = excluded.updated_at
-      `, [String(item.id), Number(item.x), Number(item.y)]);
+      `,
+        [String(item.id), Number(item.x), Number(item.y)],
+      );
     }
-    await client.query('commit');
+    await client.query("commit");
   } catch (error) {
-    await client.query('rollback');
+    await client.query("rollback");
     throw error;
   } finally {
     client.release();
@@ -1220,19 +1402,22 @@ function toCapabilityArray(device) {
 async function upsertSnapshotCapabilityState(client, device, syncedAt) {
   const capabilitiesObj = device?.capabilitiesObj || {};
   for (const capability of toCapabilityArray(device)) {
-    if (!Object.prototype.hasOwnProperty.call(capabilitiesObj, capability)) continue;
+    if (!Object.prototype.hasOwnProperty.call(capabilitiesObj, capability))
+      continue;
 
     const capabilityInfo = capabilitiesObj[capability] || {};
     const { value } = capabilityInfo;
     const eventTime = capabilityInfo.lastUpdated || syncedAt;
-    const valueNumber = typeof value === 'number' && Number.isFinite(value) ? value : null;
-    const valueBoolean = typeof value === 'boolean' ? value : null;
+    const valueNumber =
+      typeof value === "number" && Number.isFinite(value) ? value : null;
+    const valueBoolean = typeof value === "boolean" ? value : null;
     const payload = {
-      source: 'snapshot',
+      source: "snapshot",
       capability: capabilityInfo,
     };
 
-    await client.query(`
+    await client.query(
+      `
       insert into ingest_event (
         event_time, homey_device_id, homey_zone_id, device_name, driver_id, device_class,
         capability, value_json, value_number, value_boolean, unit, available, payload
@@ -1252,23 +1437,26 @@ async function upsertSnapshotCapabilityState(client, device, syncedAt) {
           and event_time = $3
           and value_json = to_jsonb($8::json)
       )
-    `, [
-      device.id,
-      capability,
-      eventTime,
-      device.zone || null,
-      device.name || null,
-      device.driverId || null,
-      device.class || null,
-      JSON.stringify(value),
-      valueNumber,
-      valueBoolean,
-      capabilityInfo.units || capabilityInfo.unit || null,
-      device.available !== false,
-      JSON.stringify(payload),
-    ]);
+    `,
+      [
+        device.id,
+        capability,
+        eventTime,
+        device.zone || null,
+        device.name || null,
+        device.driverId || null,
+        device.class || null,
+        JSON.stringify(value),
+        valueNumber,
+        valueBoolean,
+        capabilityInfo.units || capabilityInfo.unit || null,
+        device.available !== false,
+        JSON.stringify(payload),
+      ],
+    );
 
-    await client.query(`
+    await client.query(
+      `
       insert into state_current (
         homey_device_id, capability, event_time, received_at, homey_zone_id, device_name,
         driver_id, device_class, value_json, value_number, value_boolean, unit, available, payload
@@ -1287,27 +1475,29 @@ async function upsertSnapshotCapabilityState(client, device, syncedAt) {
         available = excluded.available,
         payload = excluded.payload
       where state_current.event_time <= excluded.event_time
-    `, [
-      device.id,
-      capability,
-      eventTime,
-      device.zone || null,
-      device.name || null,
-      device.driverId || null,
-      device.class || null,
-      JSON.stringify(value),
-      valueNumber,
-      valueBoolean,
-      capabilityInfo.units || capabilityInfo.unit || null,
-      device.available !== false,
-      JSON.stringify(payload),
-    ]);
+    `,
+      [
+        device.id,
+        capability,
+        eventTime,
+        device.zone || null,
+        device.name || null,
+        device.driverId || null,
+        device.class || null,
+        JSON.stringify(value),
+        valueNumber,
+        valueBoolean,
+        capabilityInfo.units || capabilityInfo.unit || null,
+        device.available !== false,
+        JSON.stringify(payload),
+      ],
+    );
   }
 }
 
 async function handleHomeySync(request, response) {
   if (!isAuthorized(request)) {
-    sendError(response, 401, 'Unauthorized');
+    sendError(response, 401, "Unauthorized");
     return;
   }
 
@@ -1317,10 +1507,11 @@ async function handleHomeySync(request, response) {
   const client = await pool.connect();
 
   try {
-    await client.query('begin');
+    await client.query("begin");
 
     for (const [id, zone] of getObjectEntries(snapshot.zones)) {
-      await client.query(`
+      await client.query(
+        `
         insert into homey_zone (id, name, parent_id, payload, synced_at)
         values ($1, $2, $3, $4::jsonb, $5)
         on conflict (id) do update set
@@ -1328,11 +1519,26 @@ async function handleHomeySync(request, response) {
           parent_id = excluded.parent_id,
           payload = excluded.payload,
           synced_at = excluded.synced_at
-      `, [id, zone.name || null, zone.parent || zone.parentId || null, JSON.stringify(zone), syncedAt]);
+      `,
+        [
+          id,
+          zone.name || null,
+          zone.parent || zone.parentId || null,
+          JSON.stringify(zone),
+          syncedAt,
+        ],
+      );
     }
 
+    const deviceIds = getObjectEntries(snapshot.devices).map(([id]) => id);
+    await client.query(
+      "delete from homey_device where not (id = any($1::text[]))",
+      [deviceIds],
+    );
+
     for (const [id, device] of getObjectEntries(snapshot.devices)) {
-      await client.query(`
+      await client.query(
+        `
         insert into homey_device (id, name, zone_id, driver_id, device_class, available, capabilities, payload, synced_at)
         values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
         on conflict (id) do update set
@@ -1344,28 +1550,34 @@ async function handleHomeySync(request, response) {
           capabilities = excluded.capabilities,
           payload = excluded.payload,
           synced_at = excluded.synced_at
-      `, [
-        id,
-        device.name || null,
-        device.zone || null,
-        device.driverId || null,
-        device.class || null,
-        device.available !== false,
-        toCapabilityArray(device),
-        JSON.stringify(device),
-        syncedAt,
-      ]);
-      await client.query(`
+      `,
+        [
+          id,
+          device.name || null,
+          device.zone || null,
+          device.driverId || null,
+          device.class || null,
+          device.available !== false,
+          toCapabilityArray(device),
+          JSON.stringify(device),
+          syncedAt,
+        ],
+      );
+      await client.query(
+        `
         insert into device_route (source_system, source_device_id, target_system, target_device_id)
         values ('homey', $1, 'homey', $1)
         on conflict (source_system, source_device_id, target_system, target_device_id, valid_from) do nothing
-      `, [id]);
+      `,
+        [id],
+      );
       device.id = id;
       await upsertSnapshotCapabilityState(client, device, syncedAt);
     }
 
     for (const [id, flow] of getObjectEntries(snapshot.flows)) {
-      await client.query(`
+      await client.query(
+        `
         insert into homey_flow (id, name, enabled, payload, synced_at)
         values ($1, $2, $3, $4::jsonb, $5)
         on conflict (id) do update set
@@ -1373,11 +1585,20 @@ async function handleHomeySync(request, response) {
           enabled = excluded.enabled,
           payload = excluded.payload,
           synced_at = excluded.synced_at
-      `, [id, flow.name || null, flow.enabled !== false, JSON.stringify(flow), syncedAt]);
+      `,
+        [
+          id,
+          flow.name || null,
+          flow.enabled !== false,
+          JSON.stringify(flow),
+          syncedAt,
+        ],
+      );
     }
 
     for (const [id, flow] of getObjectEntries(snapshot.advancedFlows)) {
-      await client.query(`
+      await client.query(
+        `
         insert into homey_advanced_flow (id, name, enabled, payload, synced_at)
         values ($1, $2, $3, $4::jsonb, $5)
         on conflict (id) do update set
@@ -1385,7 +1606,15 @@ async function handleHomeySync(request, response) {
           enabled = excluded.enabled,
           payload = excluded.payload,
           synced_at = excluded.synced_at
-      `, [id, flow.name || null, flow.enabled !== false, JSON.stringify(flow), syncedAt]);
+      `,
+        [
+          id,
+          flow.name || null,
+          flow.enabled !== false,
+          JSON.stringify(flow),
+          syncedAt,
+        ],
+      );
     }
 
     if (Array.isArray(snapshot.timers)) {
@@ -1393,41 +1622,56 @@ async function handleHomeySync(request, response) {
         .map((timer) => timer?.name)
         .filter(Boolean);
 
-      await client.query('delete from homey_timer where not (name = any($1::text[]))', [timerNames]);
+      await client.query(
+        "delete from homey_timer where not (name = any($1::text[]))",
+        [timerNames],
+      );
 
       for (const timer of snapshot.timers) {
         if (!timer?.name) continue;
-        await client.query(`
+        await client.query(
+          `
           insert into homey_timer (name, payload, synced_at)
           values ($1, $2::jsonb, $3)
           on conflict (name) do update set
             payload = excluded.payload,
             synced_at = excluded.synced_at
-        `, [timer.name, JSON.stringify(timer), syncedAt]);
+        `,
+          [timer.name, JSON.stringify(timer), syncedAt],
+        );
       }
     }
 
-    if (snapshot.logicVariables && typeof snapshot.logicVariables === 'object') {
+    if (
+      snapshot.logicVariables &&
+      typeof snapshot.logicVariables === "object"
+    ) {
       const variables = getObjectEntries(snapshot.logicVariables);
       const variableIds = variables.map(([id]) => id);
 
-      await client.query('delete from homey_logic_variable where not (id = any($1::text[]))', [variableIds]);
+      await client.query(
+        "delete from homey_logic_variable where not (id = any($1::text[]))",
+        [variableIds],
+      );
 
       for (const [id, variable] of variables) {
-        await client.query(`
+        await client.query(
+          `
           insert into homey_logic_variable (id, name, payload, synced_at)
           values ($1, $2, $3::jsonb, $4)
           on conflict (id) do update set
             name = excluded.name,
             payload = excluded.payload,
             synced_at = excluded.synced_at
-        `, [id, variable.name || id, JSON.stringify(variable), syncedAt]);
+        `,
+          [id, variable.name || id, JSON.stringify(variable), syncedAt],
+        );
       }
     }
 
-    await client.query('commit');
+    await client.query("commit");
   } catch (error) {
-    await client.query('rollback');
+    await client.query("rollback");
     throw error;
   } finally {
     client.release();
@@ -1440,21 +1684,76 @@ async function handleHomeySync(request, response) {
     flows: Object.keys(snapshot.flows || {}).length,
     advancedFlows: Object.keys(snapshot.advancedFlows || {}).length,
     timers: Array.isArray(snapshot.timers) ? snapshot.timers.length : null,
-    logicVariables: snapshot.logicVariables && typeof snapshot.logicVariables === 'object'
-      ? Object.keys(snapshot.logicVariables).length
-      : null,
+    logicVariables:
+      snapshot.logicVariables && typeof snapshot.logicVariables === "object"
+        ? Object.keys(snapshot.logicVariables).length
+        : null,
   });
 }
 
-async function getReplayRoute(requestUrl, response) {
-  const sourceSystem = requestUrl.searchParams.get('sourceSystem');
-  const sourceDeviceId = requestUrl.searchParams.get('deviceId');
-  const at = requestUrl.searchParams.get('at');
-  if (!sourceSystem || !sourceDeviceId || !at || Number.isNaN(Date.parse(at))) {
-    sendError(response, 400, 'sourceSystem, deviceId and at must be valid');
+async function handleExternalDeviceSync(request, response) {
+  if (!isAuthorized(request)) {
+    sendError(response, 401, "Unauthorized");
     return;
   }
-  const result = await pool.query(`
+  const body = await readRequestBody(request);
+  const parsed = body ? JSON.parse(body) : {};
+  const devices = Array.isArray(parsed.devices) ? parsed.devices : [];
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    for (const device of devices) {
+      if (!device?.id || !device?.name) continue;
+      const zoneId = device.zoneId || "external";
+      const zoneName = device.zoneName || "Ukendt zone";
+      await client.query(
+        `
+        insert into external_zone (id, name, payload, synced_at)
+        values ($1, $2, $3::jsonb, now())
+        on conflict (id) do update set name = excluded.name, payload = excluded.payload, synced_at = excluded.synced_at
+      `,
+        [zoneId, zoneName, JSON.stringify({ id: zoneId, name: zoneName })],
+      );
+      await client.query(
+        `
+        insert into external_device (id, name, zone_id, driver_id, device_class, available, capabilities, payload, synced_at)
+        values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, now())
+        on conflict (id) do update set name = excluded.name, zone_id = excluded.zone_id,
+          driver_id = excluded.driver_id, device_class = excluded.device_class, available = excluded.available,
+          capabilities = excluded.capabilities, payload = excluded.payload, synced_at = excluded.synced_at
+      `,
+        [
+          device.id,
+          device.name,
+          zoneId,
+          device.driverId || null,
+          device.class || null,
+          device.available !== false,
+          Array.isArray(device.capabilities) ? device.capabilities : [],
+          JSON.stringify(device),
+        ],
+      );
+    }
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+  sendJson(response, 202, { ok: true, devices: devices.length });
+}
+
+async function getReplayRoute(requestUrl, response) {
+  const sourceSystem = requestUrl.searchParams.get("sourceSystem");
+  const sourceDeviceId = requestUrl.searchParams.get("deviceId");
+  const at = requestUrl.searchParams.get("at");
+  if (!sourceSystem || !sourceDeviceId || !at || Number.isNaN(Date.parse(at))) {
+    sendError(response, 400, "sourceSystem, deviceId and at must be valid");
+    return;
+  }
+  const result = await pool.query(
+    `
     select source_system as "sourceSystem", source_device_id as "sourceDeviceId",
       target_system as "targetSystem", target_device_id as "targetDeviceId",
       valid_from as "validFrom", valid_to as "validTo", payload
@@ -1463,9 +1762,15 @@ async function getReplayRoute(requestUrl, response) {
       and valid_from <= $3 and (valid_to is null or valid_to > $3)
     order by valid_from desc
     limit 2
-  `, [sourceSystem, sourceDeviceId, at]);
+  `,
+    [sourceSystem, sourceDeviceId, at],
+  );
   if (result.rows.length !== 1) {
-    sendError(response, 409, `No unambiguous route for ${sourceSystem}:${sourceDeviceId} at ${at}`);
+    sendError(
+      response,
+      409,
+      `No unambiguous route for ${sourceSystem}:${sourceDeviceId} at ${at}`,
+    );
     return;
   }
   sendJson(response, 200, { route: result.rows[0] });
@@ -1473,44 +1778,77 @@ async function getReplayRoute(requestUrl, response) {
 
 async function putDeviceRoute(request, response) {
   if (!isAuthorized(request)) {
-    sendError(response, 401, 'Unauthorized');
+    sendError(response, 401, "Unauthorized");
     return;
   }
   const body = await readRequestBody(request);
   const route = body ? JSON.parse(body) : {};
-  const sourceSystem = String(route.sourceSystem || route.source_system || '').trim();
-  const sourceDeviceId = String(route.sourceDeviceId || route.source_device_id || '').trim();
-  const targetSystem = String(route.targetSystem || route.target_system || '').trim();
-  const targetDeviceId = String(route.targetDeviceId || route.target_device_id || '').trim();
-  const validFrom = route.validFrom || route.valid_from || new Date().toISOString();
+  const sourceSystem = String(
+    route.sourceSystem || route.source_system || "",
+  ).trim();
+  const sourceDeviceId = String(
+    route.sourceDeviceId || route.source_device_id || "",
+  ).trim();
+  const targetSystem = String(
+    route.targetSystem || route.target_system || "",
+  ).trim();
+  const targetDeviceId = String(
+    route.targetDeviceId || route.target_device_id || "",
+  ).trim();
+  const validFrom =
+    route.validFrom || route.valid_from || new Date().toISOString();
   const validTo = route.validTo || route.valid_to || null;
-  if (!sourceSystem || !sourceDeviceId || !targetSystem || !targetDeviceId
-    || Number.isNaN(Date.parse(validFrom)) || (validTo && Number.isNaN(Date.parse(validTo)))) {
-    sendError(response, 400, 'source/target systems and device ids plus validFrom are required');
+  if (
+    !sourceSystem ||
+    !sourceDeviceId ||
+    !targetSystem ||
+    !targetDeviceId ||
+    Number.isNaN(Date.parse(validFrom)) ||
+    (validTo && Number.isNaN(Date.parse(validTo)))
+  ) {
+    sendError(
+      response,
+      400,
+      "source/target systems and device ids plus validFrom are required",
+    );
     return;
   }
   if (validTo && Date.parse(validTo) <= Date.parse(validFrom)) {
-    sendError(response, 400, 'validTo must be after validFrom');
+    sendError(response, 400, "validTo must be after validFrom");
     return;
   }
   const client = await pool.connect();
   try {
-    await client.query('begin');
-    await client.query(`
+    await client.query("begin");
+    await client.query(
+      `
       update device_route set valid_to = $3
       where source_system = $1 and source_device_id = $2
         and valid_from < $3 and (valid_to is null or valid_to > $3)
-    `, [sourceSystem, sourceDeviceId, validFrom]);
-    await client.query(`
+    `,
+      [sourceSystem, sourceDeviceId, validFrom],
+    );
+    await client.query(
+      `
       insert into device_route (
         source_system, source_device_id, target_system, target_device_id, valid_from, valid_to, payload
       ) values ($1, $2, $3, $4, $5, $6, $7::jsonb)
       on conflict (source_system, source_device_id, target_system, target_device_id, valid_from) do update set
         valid_to = excluded.valid_to, payload = excluded.payload
-    `, [sourceSystem, sourceDeviceId, targetSystem, targetDeviceId, validFrom, validTo, JSON.stringify(route.payload || {})]);
-    await client.query('commit');
+    `,
+      [
+        sourceSystem,
+        sourceDeviceId,
+        targetSystem,
+        targetDeviceId,
+        validFrom,
+        validTo,
+        JSON.stringify(route.payload || {}),
+      ],
+    );
+    await client.query("commit");
   } catch (error) {
-    await client.query('rollback');
+    await client.query("rollback");
     throw error;
   } finally {
     client.release();
@@ -1520,20 +1858,23 @@ async function putDeviceRoute(request, response) {
 
 async function handlePriceIngest(request, response) {
   if (!isAuthorized(request)) {
-    sendError(response, 401, 'Unauthorized');
+    sendError(response, 401, "Unauthorized");
     return;
   }
 
   const body = await readRequestBody(request);
   const parsed = body ? JSON.parse(body) : null;
-  const payloads = Array.isArray(parsed) ? parsed : parsed?.prices || parsed?.intervals || [parsed];
+  const payloads = Array.isArray(parsed)
+    ? parsed
+    : parsed?.prices || parsed?.intervals || [parsed];
   const prices = payloads.map(normalizePriceInterval);
   const client = await pool.connect();
 
   try {
-    await client.query('begin');
+    await client.query("begin");
     for (const price of prices) {
-      await client.query(`
+      await client.query(
+        `
         insert into price_interval (
           price_area, starts_at, ends_at, spot_dkk_per_kwh, grid_tariff_dkk_per_kwh,
           taxes_dkk_per_kwh, vat_rate, effective_dkk_per_kwh, currency, source, payload, updated_at
@@ -1549,23 +1890,25 @@ async function handlePriceIngest(request, response) {
           source = excluded.source,
           payload = excluded.payload,
           updated_at = excluded.updated_at
-      `, [
-        price.priceArea,
-        price.startsAt,
-        price.endsAt,
-        price.spot,
-        price.gridTariff,
-        price.taxes,
-        price.vatRate,
-        price.effective,
-        price.currency,
-        price.source,
-        JSON.stringify(price.payload),
-      ]);
+      `,
+        [
+          price.priceArea,
+          price.startsAt,
+          price.endsAt,
+          price.spot,
+          price.gridTariff,
+          price.taxes,
+          price.vatRate,
+          price.effective,
+          price.currency,
+          price.source,
+          JSON.stringify(price.payload),
+        ],
+      );
     }
-    await client.query('commit');
+    await client.query("commit");
   } catch (error) {
-    await client.query('rollback');
+    await client.query("rollback");
     throw error;
   } finally {
     client.release();
@@ -1577,13 +1920,17 @@ async function handlePriceIngest(request, response) {
 async function rebuildEnergyUsage({ from, to, priceArea }) {
   const client = await pool.connect();
   try {
-    await client.query('begin');
-    await client.query(`
+    await client.query("begin");
+    await client.query(
+      `
       delete from energy_usage_15m
       where bucket_start >= $1 and bucket_start < $2 and price_area = $3
-    `, [from, to, priceArea]);
+    `,
+      [from, to, priceArea],
+    );
 
-    const result = await client.query(`
+    const result = await client.query(
+      `
       insert into energy_usage_15m (
         bucket_start, bucket_end, homey_device_id, device_name, capability,
         kwh, price_area, effective_dkk_per_kwh, cost_dkk, updated_at
@@ -1638,11 +1985,13 @@ async function rebuildEnergyUsage({ from, to, priceArea }) {
         effective_dkk_per_kwh = excluded.effective_dkk_per_kwh,
         cost_dkk = excluded.cost_dkk,
         updated_at = excluded.updated_at
-    `, [from, to, priceArea, ENERGY_CAPABILITIES]);
-    await client.query('commit');
+    `,
+      [from, to, priceArea, ENERGY_CAPABILITIES],
+    );
+    await client.query("commit");
     return result.rowCount;
   } catch (error) {
-    await client.query('rollback');
+    await client.query("rollback");
     throw error;
   } finally {
     client.release();
@@ -1654,9 +2003,13 @@ async function ensureEnergyUsageFresh({ from, to, priceArea }) {
 
   const now = Date.now();
   const toTime = Date.parse(to);
-  if (!Number.isFinite(toTime) || Math.abs(now - toTime) > 10 * 60 * 1000) return;
+  if (!Number.isFinite(toTime) || Math.abs(now - toTime) > 10 * 60 * 1000)
+    return;
 
-  const state = energyUsageAutoRebuilds.get(priceArea) || { lastRunAt: 0, promise: null };
+  const state = energyUsageAutoRebuilds.get(priceArea) || {
+    lastRunAt: 0,
+    promise: null,
+  };
   if (state.promise) {
     await state.promise;
     return;
@@ -1664,12 +2017,24 @@ async function ensureEnergyUsageFresh({ from, to, priceArea }) {
   if (now - state.lastRunAt < ENERGY_USAGE_AUTO_REBUILD_INTERVAL_MS) return;
 
   const requestedFrom = Date.parse(from);
-  const earliestFrom = now - ENERGY_USAGE_AUTO_REBUILD_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
-  const rebuildFrom = new Date(Math.max(Number.isFinite(requestedFrom) ? requestedFrom : earliestFrom, earliestFrom)).toISOString();
+  const earliestFrom =
+    now - ENERGY_USAGE_AUTO_REBUILD_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+  const rebuildFrom = new Date(
+    Math.max(
+      Number.isFinite(requestedFrom) ? requestedFrom : earliestFrom,
+      earliestFrom,
+    ),
+  ).toISOString();
   const rebuildTo = new Date(now).toISOString();
-  const promise = rebuildEnergyUsage({ from: rebuildFrom, to: rebuildTo, priceArea })
+  const promise = rebuildEnergyUsage({
+    from: rebuildFrom,
+    to: rebuildTo,
+    priceArea,
+  })
     .catch((error) => {
-      console.warn(`Energy usage auto rebuild failed: ${error.message || error}`);
+      console.warn(
+        `Energy usage auto rebuild failed: ${error.message || error}`,
+      );
     })
     .finally(() => {
       const current = energyUsageAutoRebuilds.get(priceArea) || {};
@@ -1682,19 +2047,22 @@ async function ensureEnergyUsageFresh({ from, to, priceArea }) {
 
 async function handleEnergyRebuild(request, response) {
   if (!isAuthorized(request)) {
-    sendError(response, 401, 'Unauthorized');
+    sendError(response, 401, "Unauthorized");
     return;
   }
 
   const body = await readRequestBody(request);
   const parsed = body ? JSON.parse(body) : {};
-  const to = parseOptionalTimestamp(parsed.to || parsed.end, 'to') || new Date().toISOString();
-  const from = parseOptionalTimestamp(parsed.from || parsed.start, 'from')
-    || new Date(Date.parse(to) - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const to =
+    parseOptionalTimestamp(parsed.to || parsed.end, "to") ||
+    new Date().toISOString();
+  const from =
+    parseOptionalTimestamp(parsed.from || parsed.start, "from") ||
+    new Date(Date.parse(to) - 7 * 24 * 60 * 60 * 1000).toISOString();
   const priceArea = parsed.priceArea || DEFAULT_PRICE_AREA;
 
   if (Date.parse(to) <= Date.parse(from)) {
-    sendError(response, 400, 'to must be after from');
+    sendError(response, 400, "to must be after from");
     return;
   }
 
@@ -1710,29 +2078,35 @@ async function handleEnergyRebuild(request, response) {
 
 async function handleEnergyPriceImport(request, response) {
   if (!isAuthorized(request)) {
-    sendError(response, 401, 'Unauthorized');
+    sendError(response, 401, "Unauthorized");
     return;
   }
 
   const body = await readRequestBody(request);
   const parsed = body ? JSON.parse(body) : {};
   const defaults = getDefaultPriceImportWindow();
-  const to = parseOptionalTimestamp(parsed.to || parsed.end, 'to') || defaults.to;
-  const from = parseOptionalTimestamp(parsed.from || parsed.start, 'from') || defaults.from;
+  const to =
+    parseOptionalTimestamp(parsed.to || parsed.end, "to") || defaults.to;
+  const from =
+    parseOptionalTimestamp(parsed.from || parsed.start, "from") ||
+    defaults.from;
   const priceArea = parsed.priceArea || defaults.priceArea;
 
   if (Date.parse(to) <= Date.parse(from)) {
-    sendError(response, 400, 'to must be after from');
+    sendError(response, 400, "to must be after from");
     return;
   }
 
   if (parsed.force === true) {
-    await pool.query(`
+    await pool.query(
+      `
       delete from price_interval
       where price_area = $1
         and starts_at >= $2
         and starts_at < $3
-    `, [priceArea, from, to]);
+    `,
+      [priceArea, from, to],
+    );
   }
 
   const result = await importEnergyPrices({ from, to, priceArea });
@@ -1747,28 +2121,33 @@ async function handleEnergyPriceImport(request, response) {
 }
 
 async function getEnergyUsage(requestUrl, response) {
-  const to = parseOptionalTimestamp(requestUrl.searchParams.get('to'), 'to') || new Date().toISOString();
-  const from = parseOptionalTimestamp(requestUrl.searchParams.get('from'), 'from')
-    || new Date(Date.parse(to) - 24 * 60 * 60 * 1000).toISOString();
-  const interval = getEnergyInterval(requestUrl.searchParams.get('interval'));
-  const priceArea = requestUrl.searchParams.get('priceArea') || DEFAULT_PRICE_AREA;
-  const homeyDeviceId = requestUrl.searchParams.get('deviceId');
+  const to =
+    parseOptionalTimestamp(requestUrl.searchParams.get("to"), "to") ||
+    new Date().toISOString();
+  const from =
+    parseOptionalTimestamp(requestUrl.searchParams.get("from"), "from") ||
+    new Date(Date.parse(to) - 24 * 60 * 60 * 1000).toISOString();
+  const interval = getEnergyInterval(requestUrl.searchParams.get("interval"));
+  const priceArea =
+    requestUrl.searchParams.get("priceArea") || DEFAULT_PRICE_AREA;
+  const homeyDeviceId = requestUrl.searchParams.get("deviceId");
 
   if (Date.parse(to) <= Date.parse(from)) {
-    sendError(response, 400, 'to must be after from');
+    sendError(response, 400, "to must be after from");
     return;
   }
 
   await ensureEnergyUsageFresh({ from, to, priceArea });
 
   const params = [interval, from, to, priceArea];
-  let deviceClause = '';
+  let deviceClause = "";
   if (homeyDeviceId) {
     params.push(homeyDeviceId);
     deviceClause = `and homey_device_id = $${params.length}`;
   }
 
-  const result = await pool.query(`
+  const result = await pool.query(
+    `
     select time_bucket($1::interval, bucket_start) as bucket_start,
       time_bucket($1::interval, bucket_start) + $1::interval as bucket_end,
       sum(kwh)::double precision as kwh,
@@ -1785,7 +2164,9 @@ async function getEnergyUsage(requestUrl, response) {
       ${deviceClause}
     group by 1, 2
     order by 1
-  `, params);
+  `,
+    params,
+  );
 
   sendJson(response, 200, {
     generatedAt: new Date().toISOString(),
@@ -1799,9 +2180,13 @@ async function getEnergyUsage(requestUrl, response) {
 }
 
 async function getEnergyPrices(requestUrl, response) {
-  const priceArea = requestUrl.searchParams.get('priceArea') || DEFAULT_PRICE_AREA;
-  const from = parseOptionalTimestamp(requestUrl.searchParams.get('from'), 'from');
-  const to = parseOptionalTimestamp(requestUrl.searchParams.get('to'), 'to');
+  const priceArea =
+    requestUrl.searchParams.get("priceArea") || DEFAULT_PRICE_AREA;
+  const from = parseOptionalTimestamp(
+    requestUrl.searchParams.get("from"),
+    "from",
+  );
+  const to = parseOptionalTimestamp(requestUrl.searchParams.get("to"), "to");
   const params = [priceArea];
   let rangeClause = `
     and starts_at >= (date_trunc('day', now() at time zone 'Europe/Copenhagen') at time zone 'Europe/Copenhagen')
@@ -1809,7 +2194,7 @@ async function getEnergyPrices(requestUrl, response) {
   `;
 
   if (from || to) {
-    rangeClause = '';
+    rangeClause = "";
     if (from) {
       params.push(from);
       rangeClause += ` and starts_at >= $${params.length}`;
@@ -1820,7 +2205,8 @@ async function getEnergyPrices(requestUrl, response) {
     }
   }
 
-  const result = await pool.query(`
+  const result = await pool.query(
+    `
     select starts_at,
       ends_at,
       to_char(starts_at at time zone 'Europe/Copenhagen', 'HH24:MI') as time_dk,
@@ -1835,7 +2221,9 @@ async function getEnergyPrices(requestUrl, response) {
     where price_area = $1
       ${rangeClause}
     order by starts_at
-  `, params);
+  `,
+    params,
+  );
 
   sendJson(response, 200, {
     generatedAt: new Date().toISOString(),
@@ -1852,18 +2240,45 @@ async function getCurrentState(response) {
     from state_current
     order by device_name nulls last, homey_device_id, capability
   `);
-  sendJson(response, 200, { generatedAt: new Date().toISOString(), states: result.rows });
+  sendJson(response, 200, {
+    generatedAt: new Date().toISOString(),
+    states: result.rows,
+  });
 }
 
 async function getHomeySnapshot(response) {
-  const [zones, devices, states, flows, advancedFlows, timers, logicVariables] = await Promise.all([
-    pool.query('select id, payload from homey_zone order by name nulls last, id'),
-    pool.query('select id, payload from homey_device order by name nulls last, id'),
-    pool.query('select * from state_current'),
-    pool.query('select id, payload from homey_flow order by name nulls last, id'),
-    pool.query('select id, payload from homey_advanced_flow order by name nulls last, id'),
-    pool.query('select payload, synced_at from homey_timer order by name'),
-    pool.query('select id, payload from homey_logic_variable order by name, id'),
+  const [
+    zones,
+    devices,
+    externalZones,
+    externalDevices,
+    states,
+    flows,
+    advancedFlows,
+    timers,
+    logicVariables,
+  ] = await Promise.all([
+    pool.query(
+      "select id, payload from homey_zone order by name nulls last, id",
+    ),
+    pool.query(
+      "select id, payload from homey_device order by name nulls last, id",
+    ),
+    pool.query("select id, payload from external_zone order by name, id"),
+    pool.query(
+      "select id, zone_id, payload from external_device order by name, id",
+    ),
+    pool.query("select * from state_current"),
+    pool.query(
+      "select id, payload from homey_flow order by name nulls last, id",
+    ),
+    pool.query(
+      "select id, payload from homey_advanced_flow order by name nulls last, id",
+    ),
+    pool.query("select payload, synced_at from homey_timer order by name"),
+    pool.query(
+      "select id, payload from homey_logic_variable order by name, id",
+    ),
   ]);
   const statesByDevice = states.rows.reduce((result, state) => {
     result[state.homey_device_id] ||= {};
@@ -1874,24 +2289,45 @@ async function getHomeySnapshot(response) {
     const device = row.payload;
     device.id = row.id;
     device.capabilitiesObj ||= {};
-    for (const [capability, state] of Object.entries(statesByDevice[row.id] || {})) {
+    for (const [capability, state] of Object.entries(
+      statesByDevice[row.id] || {},
+    )) {
       device.capabilitiesObj[capability] ||= {};
       device.capabilitiesObj[capability].value = state.value_json;
       device.capabilitiesObj[capability].lastUpdated = state.event_time;
+      device.capabilitiesObj[capability].ingested = true;
       if (state.unit) device.capabilitiesObj[capability].units = state.unit;
     }
     result[row.id] = device;
     return result;
   }, {});
-  const toMap = (rows) => rows.reduce((result, row) => {
-    result[row.id] = row.payload;
-    result[row.id].id = row.id;
-    return result;
-  }, {});
+  for (const row of externalDevices.rows) {
+    const device = row.payload;
+    device.id = row.id;
+    device.zone ||= row.zone_id;
+    device.capabilities ||= row.capabilities;
+    device.capabilitiesObj ||= {};
+    for (const [capability, state] of Object.entries(
+      statesByDevice[row.id] || {},
+    )) {
+      device.capabilitiesObj[capability] ||= {};
+      device.capabilitiesObj[capability].value = state.value_json;
+      device.capabilitiesObj[capability].lastUpdated = state.event_time;
+      device.capabilitiesObj[capability].ingested = true;
+      if (state.unit) device.capabilitiesObj[capability].units = state.unit;
+    }
+    deviceMap[row.id] = device;
+  }
+  const toMap = (rows) =>
+    rows.reduce((result, row) => {
+      result[row.id] = row.payload;
+      result[row.id].id = row.id;
+      return result;
+    }, {});
 
   sendJson(response, 200, {
     generatedAt: new Date().toISOString(),
-    zones: toMap(zones.rows),
+    zones: toMap(zones.rows.concat(externalZones.rows)),
     devices: deviceMap,
     flows: toMap(flows.rows),
     advancedFlows: toMap(advancedFlows.rows),
@@ -1905,37 +2341,44 @@ async function getHomeySnapshot(response) {
 }
 
 async function getEvents(requestUrl, response) {
-  const homeyDeviceId = requestUrl.searchParams.get('deviceId');
-  const capability = requestUrl.searchParams.get('capability');
-  const since = requestUrl.searchParams.get('since');
+  const homeyDeviceId = requestUrl.searchParams.get("deviceId");
+  const capability = requestUrl.searchParams.get("capability");
+  const since = requestUrl.searchParams.get("since");
 
   if (!homeyDeviceId || !capability) {
-    sendError(response, 400, 'deviceId and capability are required');
+    sendError(response, 400, "deviceId and capability are required");
     return;
   }
 
   const params = [homeyDeviceId, capability];
-  let sinceClause = '';
+  let sinceClause = "";
   if (since) {
     params.push(new Date(Number(since) || since).toISOString());
     sinceClause = `and event_time >= $${params.length}`;
   }
 
-  const result = await pool.query(`
+  const result = await pool.query(
+    `
     select id, event_time as t, value_json as v, device_name as "originName", 'homey:device:' || homey_device_id as "originUri",
       source_system as "sourceSystem", source_instance as "sourceInstance", source_event_id as "sourceEventId",
       author_system as "authorSystem", event_type as "eventType", causation_id as "causationId", correlation_id as "correlationId", replay_run_id as "replayRunId"
     from ingest_event
     where homey_device_id = $1 and capability = $2 and event_type = 'observation' ${sinceClause}
     order by event_time
-  `, params);
+  `,
+    params,
+  );
 
   sendJson(response, 200, { values: result.rows });
 }
 
 async function getHealth(response) {
-  await pool.query('select 1');
-  sendJson(response, 200, { ok: true, service: 'homey-wingman-ingest-service', generatedAt: new Date().toISOString() });
+  await pool.query("select 1");
+  sendJson(response, 200, {
+    ok: true,
+    service: "homey-wingman-ingest-service",
+    generatedAt: new Date().toISOString(),
+  });
 }
 
 async function runAutomaticPriceImport() {
@@ -1944,7 +2387,9 @@ async function runAutomaticPriceImport() {
   const window = getDefaultPriceImportWindow();
   try {
     const result = await importEnergyPrices(window);
-    console.log(`Imported ${result.imported} price intervals and rebuilt ${result.buckets} energy buckets for ${window.priceArea}`);
+    console.log(
+      `Imported ${result.imported} price intervals and rebuilt ${result.buckets} energy buckets for ${window.priceArea}`,
+    );
   } catch (error) {
     console.warn(`Automatic price import failed: ${error.message || error}`);
   }
@@ -1960,86 +2405,107 @@ function startAutomaticPriceImport() {
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
-    if (request.method === 'GET' && url.pathname === '/health') {
+    if (request.method === "GET" && url.pathname === "/health") {
       await getHealth(response);
       return;
     }
-    if (request.method === 'POST' && (url.pathname === '/api/ingest' || url.pathname === '/api/ingest/homey')) {
+    if (
+      request.method === "POST" &&
+      (url.pathname === "/api/ingest" || url.pathname === "/api/ingest/homey")
+    ) {
       await handleIngest(request, response);
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/sync/homey') {
+    if (request.method === "POST" && url.pathname === "/api/sync/homey") {
       await handleHomeySync(request, response);
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/zigbee/routes/snapshot') {
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/sync/external-devices"
+    ) {
+      await handleExternalDeviceSync(request, response);
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/zigbee/routes/snapshot"
+    ) {
       await handleZigbeeRouteSnapshot(request, response);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/zigbee/routes/history') {
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/zigbee/routes/history"
+    ) {
       await getZigbeeRouteHistory(url, response);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/zigbee/layout') {
+    if (request.method === "GET" && url.pathname === "/api/zigbee/layout") {
       await getZigbeeLayout(response);
       return;
     }
-    if (request.method === 'PUT' && url.pathname === '/api/zigbee/layout') {
+    if (request.method === "PUT" && url.pathname === "/api/zigbee/layout") {
       await putZigbeeLayout(request, response);
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/energy/prices') {
+    if (request.method === "POST" && url.pathname === "/api/energy/prices") {
       await handlePriceIngest(request, response);
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/energy/rebuild') {
+    if (request.method === "POST" && url.pathname === "/api/energy/rebuild") {
       await handleEnergyRebuild(request, response);
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/energy/import-prices') {
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/energy/import-prices"
+    ) {
       await handleEnergyPriceImport(request, response);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/current-state') {
+    if (request.method === "GET" && url.pathname === "/api/current-state") {
       await getCurrentState(response);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/homey/snapshot') {
+    if (request.method === "GET" && url.pathname === "/api/homey/snapshot") {
       await getHomeySnapshot(response);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/events') {
+    if (request.method === "GET" && url.pathname === "/api/events") {
       await getEvents(url, response);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/replay/routes') {
+    if (request.method === "GET" && url.pathname === "/api/replay/routes") {
       await getReplayRoute(url, response);
       return;
     }
-    if (request.method === 'PUT' && url.pathname === '/api/replay/routes') {
+    if (request.method === "PUT" && url.pathname === "/api/replay/routes") {
       await putDeviceRoute(request, response);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/energy/usage') {
+    if (request.method === "GET" && url.pathname === "/api/energy/usage") {
       await getEnergyUsage(url, response);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/energy/prices') {
+    if (request.method === "GET" && url.pathname === "/api/energy/prices") {
       await getEnergyPrices(url, response);
       return;
     }
-    sendError(response, 404, 'Not found');
+    sendError(response, 404, "Not found");
   } catch (error) {
     console.error(error.message || error);
-    sendError(response, 500, error.message || 'Internal server error');
+    sendError(response, 500, error.message || "Internal server error");
   }
 });
 
 if (require.main === module) {
   initializeDatabase()
     .then(() => {
-      server.listen(PORT, '0.0.0.0', () => {
-        console.log(`Homey Wingman ingest service listening on http://0.0.0.0:${PORT}`);
+      server.listen(PORT, "0.0.0.0", () => {
+        console.log(
+          `Homey Wingman ingest service listening on http://0.0.0.0:${PORT}`,
+        );
         startAutomaticPriceImport();
       });
     })

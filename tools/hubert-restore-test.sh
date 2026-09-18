@@ -4,7 +4,7 @@ set -Eeuo pipefail
 BACKUP_ROOT=${BACKUP_ROOT:-/mnt/hubert-backup/hubert}
 TEST_CONTAINER=${TEST_CONTAINER:-homey-wingman-restore-test}
 TEST_DB=${TEST_DB:-homey_wingman_restore}
-TEST_IMAGE=${TEST_IMAGE:-timescale/timescaledb:latest-pg16}
+TEST_IMAGE=${TEST_IMAGE:-timescale/timescaledb:2.28.2-pg16}
 KEEP_RESTORE_TEST=${KEEP_RESTORE_TEST:-0}
 
 log() {
