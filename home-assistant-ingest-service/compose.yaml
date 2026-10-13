@@ -9,6 +9,11 @@ services:
       MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set}
       WINGMAN_URL: http://homey-wingman-ingest-service:8788
       INGEST_TOKEN: ${INGEST_TOKEN:?INGEST_TOKEN must be set}
+      HA_ENERGY_ENABLED: ${HA_ENERGY_ENABLED:-false}
+      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-http://192.168.100.66:8123}
+      HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:-}
+      HA_ENERGY_ZONE_ID: ${HA_ENERGY_ZONE_ID:-home}
+      HA_ENERGY_ZONE_NAME: ${HA_ENERGY_ZONE_NAME:-Hjem}
     volumes:
       - home-assistant-ingest-data:/data
     networks:

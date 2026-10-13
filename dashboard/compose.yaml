@@ -17,6 +17,8 @@ services:
       HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:?HOME_ASSISTANT_TOKEN must be set}
       INGEST_TOKEN: ${INGEST_TOKEN}
       WINGMAN_URL: ${WINGMAN_URL:-http://homey-wingman-ingest-service:8788}
+      ENERGY_MAIN_DEVICE_ID: ${ENERGY_MAIN_DEVICE_ID:-}
+      ENERGY_USAGE_DEVICE_ID: ${ENERGY_USAGE_DEVICE_ID:-}
       SOIL_CONTROLLER_URL: ${SOIL_CONTROLLER_URL:-http://homey-wingman-soil-controller:8790}
       REPLAY_URL: ${REPLAY_URL:-http://homey-replay-service:8789}
       REPLAY_TOKEN: ${REPLAY_TOKEN:?REPLAY_TOKEN must be set}

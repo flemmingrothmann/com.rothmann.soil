@@ -47,6 +47,9 @@ const SOIL_WATER_ALARM_TOPSCORER_DAYS = 30;
 const ENERGY_MAIN_DEVICE_ID = process.env.ENERGY_MAIN_DEVICE_ID || "";
 const ENERGY_MAIN_DEVICE_NAME =
   process.env.ENERGY_MAIN_DEVICE_NAME || "Homey Energy Dongle";
+const ENERGY_USAGE_DEVICE_ID = process.env.ENERGY_USAGE_DEVICE_ID || ENERGY_MAIN_DEVICE_ID;
+const ENERGY_USAGE_FILTER = ENERGY_USAGE_DEVICE_ID
+  ? `&deviceId=${encodeURIComponent(ENERGY_USAGE_DEVICE_ID)}` : "";
 const ENERGY_BILLING_PERIOD_START_DAY = Number(
   process.env.ENERGY_BILLING_PERIOD_START_DAY || 1,
 );
@@ -2024,7 +2027,7 @@ async function getEnergyDetailDashboard(periodValue = "day", offsetValue = 0) {
   const from = encodeURIComponent(range.from.toISOString());
   const to = encodeURIComponent(range.to.toISOString());
   const [usage, pricesResult] = await Promise.all([
-    getWingmanApi(`/api/energy/usage?interval=hour&from=${from}&to=${to}`),
+    getWingmanApi(`/api/energy/usage?interval=hour&from=${from}&to=${to}${ENERGY_USAGE_FILTER}`),
     getWingmanApi(`/api/energy/prices?from=${from}&to=${to}`),
   ]);
   const prices = Array.isArray(pricesResult.prices) ? pricesResult.prices : [];
@@ -2158,7 +2161,7 @@ async function getElectricityOverviewCard(now) {
   const usageTo = encodeURIComponent(nowDate.toISOString());
   const [usage, prices, currentState] = await Promise.all([
     getWingmanApi(
-      `/api/energy/usage?interval=hour&from=${usageFrom}&to=${usageTo}`,
+      `/api/energy/usage?interval=hour&from=${usageFrom}&to=${usageTo}${ENERGY_USAGE_FILTER}`,
     ),
     getWingmanApi("/api/energy/prices"),
     getWingmanApi("/api/current-state"),
@@ -2190,11 +2193,12 @@ async function getElectricityOverviewCard(now) {
       now < endsAt
     );
   });
-  const powerState = findEnergyState(
-    currentState.states || [],
-    "measure_power",
-  );
-  const powerKw = Number(powerState?.value_number) / 1000;
+  const states = currentState.states || [];
+  const powerState = findEnergyState(states, "measure_power.imported") || findEnergyState(states, "measure_power");
+  const exportState = findEnergyState(states, "measure_power.exported");
+  const powerAvailable = powerState?.available !== false && powerState?.value_number != null;
+  const powerKw = powerAvailable
+    ? (Number(powerState.value_number) - Number(exportState?.value_number || 0)) / 1000 : NaN;
   const currentPrice = Number(price?.total_dkk_per_kwh);
   const currentCostPerHour =
     Number.isFinite(powerKw) && Number.isFinite(currentPrice)

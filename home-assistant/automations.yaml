@@ -26,6 +26,15 @@
       threshold: input_number.garage_vaegpotte_water_threshold
       water_alarm: input_boolean.garage_vaegpotte_water_alarm
       alarm_topic: homeassistant/soil/garage_vaegpotte/alarm
+- id: efeu_manuel_jordfugt_alarm
+  alias: Efeu jordfugt alarm
+  description: Giver besked når Efeu i Flemmings værelse skal vandes.
+  use_blueprint:
+    path: wingman/manual-soil-moisture-alarm.yaml
+    input:
+      moisture_sensor: sensor.0xffffb40e06059d35_soil_moisture
+      plant_name: Efeu
+      threshold: 25
 - id: terrasse_potter_labelled_watering
   alias: Terrasse potter vanding
   description: >-

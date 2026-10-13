@@ -61,4 +61,5 @@ Every event has a physical-device identity, controller-local device id, capabili
 - Emitters send timestamps from the source system and preserve their original ids. Wingman accepts delayed delivery; ordering is by occurred timestamp with receipt time retained for diagnosis.
 - Clients read historic behavior from ordered `observation` events, not from current state and not from command audit entries.
 - New controllers and emitters must conform to this document before they are connected to production Wingman ingest.
+- Main-meter observation authority and the timestamped Homey-to-HA cutover are documented in [energy-meter-ha-migration.md](energy-meter-ha-migration.md). Raw controller provenance stays unchanged; only derived meter accounting joins the authoritative streams.
 - Replay supports Homey capability writes and Home Assistant `light` `onoff` and `dim` writes. A new controller is not a replay target until it has an explicit dispatcher, capability mapping and routing records.

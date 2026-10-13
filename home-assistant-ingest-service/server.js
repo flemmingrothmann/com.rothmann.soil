@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const mqtt = require("mqtt");
+const { ENERGY_ENTITIES, energyObservation, startEnergyObserver } = require("./energy");
 
 const MQTT_URL = process.env.MQTT_URL || "mqtt://mosquitto:1883";
 const MQTT_USERNAME = process.env.MQTT_USERNAME || "";
@@ -47,7 +48,7 @@ async function post(pathname, body) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
   });
-  if (!response.ok)
+  if (response.status !== 202)
     throw new Error(
       `Wingman returned ${response.status}: ${await response.text()}`,
     );
@@ -91,7 +92,7 @@ async function flushQueue() {
     while (queue.length > 0) {
       const event = queue[0];
       await post("/api/sync/external-devices", { devices: [event.device] });
-      await putRoute(event.device.id);
+      if (event.device.class === "light") await putRoute(event.device.id);
       await post("/api/ingest", event.events);
       queue.shift();
       persistQueue();
@@ -155,6 +156,31 @@ function enqueue(payload) {
 }
 
 loadQueue();
+if (process.env.HA_ENERGY_ENABLED === "true") {
+  const url = process.env.HOME_ASSISTANT_URL;
+  const token = process.env.HOME_ASSISTANT_TOKEN;
+  if (!url || !token) throw new Error("HA energy requires HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN");
+  const options = {
+    id: process.env.HA_ENERGY_DEVICE_ID || "home_assistant:energy_main",
+    name: "Elmåler (HA)",
+    zoneId: process.env.HA_ENERGY_ZONE_ID || "home",
+    zoneName: process.env.HA_ENERGY_ZONE_NAME || "Hjem",
+  };
+  const seen = new Map();
+  startEnergyObserver({ url, token, onState: (state) => {
+    if (seen.get(state.entity_id) === state.last_updated) return;
+    const event = energyObservation(state, options);
+    if (!event) return;
+    queue.push({ device: {
+      id: options.id, name: options.name, zoneId: options.zoneId, zoneName: options.zoneName,
+      driverId: event.driver_id, class: "sensor", sourceSystem: "home_assistant",
+      available: event.available, capabilities: Object.values(ENERGY_ENTITIES).map(([capability]) => capability),
+    }, events: [event] });
+    persistQueue();
+    seen.set(state.entity_id, state.last_updated);
+    flushQueue().catch((error) => console.error(error.message || error));
+  } });
+}
 const client = mqtt.connect(MQTT_URL, {
   username: MQTT_USERNAME,
   password: MQTT_PASSWORD,

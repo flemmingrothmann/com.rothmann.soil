@@ -31,6 +31,7 @@ services:
       PORT: 8788
       DATABASE_URL: postgres://homey_wingman:${POSTGRES_PASSWORD}@postgres:5432/homey_wingman
       INGEST_TOKEN: ${INGEST_TOKEN}
+      ENERGY_METER_MIGRATIONS_JSON: ${ENERGY_METER_MIGRATIONS_JSON:-[]}
     networks:
       - default
       - reverse-proxy

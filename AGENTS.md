@@ -11,6 +11,9 @@
 ## Workflow
 - After making and verifying code changes in this repo, deploy them unless the user explicitly says not to.
 - Home Assistant automations must be simple, visually understandable and maintainable in the HA UI. Prefer one small automation per behavior; avoid overlapping controllers, hidden YAML complexity and speculative integrations. Verify the requested physical behavior end-to-end before calling an automation complete.
+- Mine Zigbee Green Power (GPD) knapper, herunder `Lightbee Flemmings Værelse`, bruger et `CR2430`-batteri; antag ikke, at disse knapper er batteriløse.
+- Lige nu er Sonoff-donglen GPD-translatoren for knapperne. Planlagte Nordtronic rotary dimmers skal senere også fungere som GPD-translators og overtage den midlertidige Sonoff-rolle; antag ikke, at der kræves en separat Hue- eller IKEA-translator.
+- Genparringsvejledning for GPD-knapper med fysisk knaplayout ligger i `docs/gpd-button-cheat-sheet.md`.
 - Runtime/deploy-verifikation for dashboard, Wingman ingest og mini-PC services skal ske mod `hubert` (typisk `fro@192.168.100.66`) og ikke mod lokale Docker-containere på udviklingsmaskinen.
 - Netværksudfald mod `hubert` er normalt midlertidige. Ved unattended eller længerevarende arbejde: vent kort og retry forbindelsen, før du betragter det som en blocker.
 
@@ -54,6 +57,7 @@
 - Read that document before creating or changing a watering valve, its Advanced Flow or dashboard lifecycle handling.
 
 ## Energy Data Principles
+- Hovedmåleren bruger HA som autoritativ datakilde fra `2026-10-13T08:10:00Z`. Dataflow, historiknøgle, cutoff og verifikation er dokumenteret i `docs/energy-meter-ha-migration.md`; ændr ikke cutoff ved almindelig redeploy, og tæl aldrig Homey- og HA-observationer for samme elmåler sammen.
 - Strøm- og energidata må ikke blindt slettes, fordi de senere skal bruges til beregning af forbrug og slutbrugerpriser.
 - Udvalgte energidata skal bevares råt eller kondenseres korrekt; noisy ikke-energidata må gerne downsample/strippes hårdere.
 - Retention og aggregation for energi skal analyseres før implementering.

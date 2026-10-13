@@ -1,0 +1,66 @@
+blueprint:
+  name: Manuel jordfugt-alarm
+  description: >-
+    Giver en vedvarende Home Assistant-notifikation, når en plante skal vandes.
+    Ingen ventil eller automatisk vanding indgår. Alarmen fjernes først igen,
+    når jordfugten er mindst 6 procentpoint over grænsen.
+  domain: automation
+  input:
+    moisture_sensor:
+      name: Jordfugtsensor
+      selector:
+        entity:
+          filter:
+            domain: sensor
+            device_class: moisture
+    threshold:
+      name: Jordfugtgrænse
+      description: Alarmen aktiveres ved eller under denne værdi.
+      default: 25
+      selector:
+        number:
+          min: 0
+          max: 90
+          step: 1
+          unit_of_measurement: "%"
+          mode: box
+    plant_name:
+      name: Plantenavn
+      selector:
+        text:
+variables:
+  moisture_sensor: !input moisture_sensor
+  threshold: !input threshold
+  plant_name: !input plant_name
+  moisture: "{{ states(moisture_sensor) | float(none) }}"
+  notification_id: "manual_soil_alarm_{{ moisture_sensor | replace('.', '_') }}"
+  upper_threshold: "{{ [95, threshold + 6] | min }}"
+triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id: !input moisture_sensor
+conditions:
+  - condition: template
+    value_template: "{{ moisture is number }}"
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ moisture <= threshold }}"
+        sequence:
+          - action: persistent_notification.create
+            data:
+              notification_id: "{{ notification_id }}"
+              title: "{{ plant_name }} skal vandes"
+              message: >-
+                Jordfugt er {{ moisture | round(0) }} %. Grænsen er {{ threshold }} %.
+      - conditions:
+          - condition: template
+            value_template: "{{ moisture >= upper_threshold }}"
+        sequence:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: "{{ notification_id }}"
+mode: queued
+max: 10

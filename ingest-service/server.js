@@ -89,6 +89,11 @@ const DATAHUB_PRICE_COMPONENTS_JSON =
   process.env.DATAHUB_PRICE_COMPONENTS_JSON ||
   JSON.stringify(DEFAULT_DATAHUB_PRICE_COMPONENTS);
 const ENERGY_CAPABILITIES = ["meter_power", "meter_power.imported"];
+const ENERGY_METER_MIGRATIONS = JSON.parse(process.env.ENERGY_METER_MIGRATIONS_JSON || "[]");
+for (const migration of ENERGY_METER_MIGRATIONS) {
+  if (!migration.previousId || !migration.currentId || !Number.isFinite(Date.parse(migration.switchedAt)))
+    throw new Error("Invalid ENERGY_METER_MIGRATIONS_JSON");
+}
 const ENERGY_INTERVALS = new Map([
   ["15m", "15 minutes"],
   ["15min", "15 minutes"],
@@ -1935,17 +1940,30 @@ async function rebuildEnergyUsage({ from, to, priceArea }) {
         bucket_start, bucket_end, homey_device_id, device_name, capability,
         kwh, price_area, effective_dkk_per_kwh, cost_dkk, updated_at
       )
-      with ordered as (
+      with migrations as (
+        select * from jsonb_to_recordset($5::jsonb)
+          as m("previousId" text, "currentId" text, "switchedAt" timestamptz)
+      ), authoritative as (
+        select e.event_time,
+          coalesce(m."previousId", e.homey_device_id) as homey_device_id,
+          e.device_name, e.capability, e.value_number
+        from ingest_event e
+        left join migrations m on e.homey_device_id in (m."previousId", m."currentId")
+        where e.capability = any($4::text[])
+          and e.value_number is not null
+          and e.event_type = 'observation'
+          and e.event_time >= $1::timestamptz - interval '2 days'
+          and e.event_time < $2
+          and (m."previousId" is null
+            or (e.homey_device_id = m."previousId" and e.source_system = 'homey' and e.event_time < m."switchedAt")
+            or (e.homey_device_id = m."currentId" and e.source_system = 'home_assistant' and e.event_time >= m."switchedAt"))
+      ), ordered as (
         select event_time, homey_device_id, device_name, capability, value_number,
           lag(value_number) over (
             partition by homey_device_id, capability
             order by event_time
           ) as previous_value
-        from ingest_event
-        where capability = any($4::text[])
-          and value_number is not null
-          and event_time >= $1::timestamptz - interval '2 days'
-          and event_time < $2
+        from authoritative
       ), deltas as (
         select time_bucket('15 minutes', event_time) as bucket_start,
           homey_device_id,
@@ -1986,7 +2004,7 @@ async function rebuildEnergyUsage({ from, to, priceArea }) {
         cost_dkk = excluded.cost_dkk,
         updated_at = excluded.updated_at
     `,
-      [from, to, priceArea, ENERGY_CAPABILITIES],
+      [from, to, priceArea, ENERGY_CAPABILITIES, JSON.stringify(ENERGY_METER_MIGRATIONS)],
     );
     await client.query("commit");
     return result.rowCount;
