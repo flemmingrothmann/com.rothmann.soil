@@ -1,0 +1,138 @@
+# Deployed by merging these IDs into /config/automations.yaml. Do not include
+# this file from configuration.yaml; the live instances remain editable in HA.
+- id: julelys_ude_aften
+  alias: Julelys ude tænd ved mørke
+  description: Tænder efter sammenhængende mørke. Grænser ændres i Julelys mørkt; tiden i Julelys mørke ventetid. Godnat og manuel sluk respekteres.
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.julelys_morkt
+      to: 'on'
+      for:
+        minutes: "{{ states('input_number.julelys_morke_ventetid') | float(2) }}"
+    - trigger: state
+      entity_id: input_boolean.juletid
+      to: 'on'
+  conditions:
+    - condition: state
+      entity_id: input_boolean.juletid
+      state: 'on'
+    - condition: state
+      entity_id: input_boolean.julelys_natpause
+      state: 'off'
+    - condition: state
+      entity_id: binary_sensor.julelys_morkt
+      state: 'on'
+      for:
+        minutes: "{{ states('input_number.julelys_morke_ventetid') | float(2) }}"
+    - condition: time
+      after: '12:00:00'
+    - condition: template
+      value_template: >-
+        {{ now().hour < 23 or is_state('binary_sensor.julelys_fridag_i_morgen', 'on') }}
+  actions:
+    - action: light.turn_on
+      target:
+        label_id: julelys_ude
+- id: julelys_ude_morgen
+  alias: Julelys ude morgen
+  description: Kl. 7 på arbejdsdage, ved solopgang på fridage. Genåbner efter nattens pause.
+  triggers:
+    - trigger: time
+      at: '07:00:00'
+      id: workday
+    - trigger: sun
+      event: sunrise
+      id: day_off
+  conditions:
+    - condition: template
+      value_template: >-
+        {{ (trigger.id == 'workday' and is_state('binary_sensor.julelys_fridag_i_dag', 'off'))
+           or (trigger.id == 'day_off' and is_state('binary_sensor.julelys_fridag_i_dag', 'on')) }}
+  actions:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.julelys_natpause
+    - condition: state
+      entity_id: input_boolean.juletid
+      state: 'on'
+    - condition: template
+      value_template: "{{ states('binary_sensor.julelys_lyst_i_30_minutter') in ['on', 'off'] }}"
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: binary_sensor.julelys_lyst_i_30_minutter
+          state: 'on'
+          for:
+            minutes: "{{ states('input_number.julelys_dagslys_ventetid') | float(30) }}"
+    - action: light.turn_on
+      target:
+        label_id: julelys_ude
+- id: julelys_ude_dagslys
+  alias: Julelys ude sluk efter dagslys
+  description: Slukker udendørs efter sammenhængende dagslys. Grænser ændres i helperen Julelys dagslys; tiden i Julelys dagslys ventetid.
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.julelys_lyst_i_30_minutter
+      to: 'on'
+      for:
+        minutes: "{{ states('input_number.julelys_dagslys_ventetid') | float(30) }}"
+  actions:
+    - action: light.turn_off
+      target:
+        label_id: julelys_ude
+- id: julelys_seneste_sluk
+  alias: Julelys seneste sluk
+  description: Kl. 23 før arbejdsdage og kl. 01 på fridage. Manuel tænd virker igen bagefter.
+  triggers:
+    - trigger: time
+      at: '23:00:00'
+      id: before_workday
+    - trigger: time
+      at: '01:00:00'
+      id: day_off
+  conditions:
+    - condition: template
+      value_template: >-
+        {{ (trigger.id == 'before_workday' and is_state('binary_sensor.julelys_fridag_i_morgen', 'off'))
+           or (trigger.id == 'day_off' and is_state('binary_sensor.julelys_fridag_i_dag', 'on')) }}
+  actions:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.julelys_natpause
+    - action: script.julelys_sluk
+- id: julelys_godnat
+  alias: Julelys sluk ved godnat
+  description: Natlys Zone/alt-sluk slukker alt julelys om aftenen/natten. Manuel tænd virker bagefter.
+  triggers:
+    - trigger: state
+      entity_id: light.natlys_zone
+      from: 'on'
+      to: 'off'
+  conditions:
+    - condition: time
+      after: '21:00:00'
+      before: '06:00:00'
+  actions:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.julelys_natpause
+    - action: script.julelys_sluk
+- id: julelys_master_sluk
+  alias: Julelys master sluk
+  description: Juletid fra slukker alt julelys, også manuelt tændt lys.
+  triggers:
+    - trigger: state
+      entity_id: input_boolean.juletid
+      to: 'off'
+  actions:
+    - action: script.julelys_sluk
+- id: julelys_klar_til_aften
+  alias: Julelys klar til aften
+  description: Nulstiller godnat/manuel sluk ved middag, så næste mørkeperiode kan tænde igen.
+  triggers:
+    - trigger: time
+      at: '12:00:00'
+  actions:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.julelys_natpause

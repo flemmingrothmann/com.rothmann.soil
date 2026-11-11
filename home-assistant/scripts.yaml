@@ -1,0 +1,12 @@
+# Scripts live here so they remain editable in the Home Assistant UI.
+julelys_sluk:
+  alias: Julelys sluk inde og ude
+  description: Fælles labelbaseret sluk. Den manuelle kontakt følger lysets faktiske status.
+  mode: queued
+  sequence:
+    - action: light.turn_off
+      target:
+        label_id:
+          - julelys
+          - julelys_ude
+          - julelys_inde

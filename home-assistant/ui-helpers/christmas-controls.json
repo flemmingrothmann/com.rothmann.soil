@@ -1,0 +1,42 @@
+{
+  "input_boolean": [
+    { "entity_id": "input_boolean.juletid", "name": "Juletid", "icon": "mdi:pine-tree" },
+    { "entity_id": "input_boolean.julelys_natpause", "name": "Julelys automatisk tænding pauset", "icon": "mdi:weather-night" },
+    { "entity_id": "input_boolean.ferie_i_dag", "name": "Ferie i dag", "icon": "mdi:beach" },
+    { "entity_id": "input_boolean.ferie_i_morgen", "name": "Ferie i morgen", "icon": "mdi:beach" }
+  ],
+  "input_datetime": [
+    { "entity_id": "input_datetime.ferie_kalenderdato", "name": "Feriekalender gyldig for dato", "has_date": true, "has_time": false }
+  ],
+  "template": [
+    {
+      "entity_id": "binary_sensor.julelys_fridag_i_dag",
+      "template_type": "binary_sensor",
+      "name": "Julelys fridag i dag",
+      "state": "{{ is_state('binary_sensor.arbejdsdag_danmark_i_dag', 'off') or (is_state('input_boolean.ferie_i_dag', 'on') and states('input_datetime.ferie_kalenderdato') == now().date().isoformat()) }}",
+      "additional_options": { "availability": "{{ states('binary_sensor.arbejdsdag_danmark_i_dag') in ['on', 'off'] }}" }
+    },
+    {
+      "entity_id": "binary_sensor.julelys_fridag_i_morgen",
+      "template_type": "binary_sensor",
+      "name": "Julelys fridag i morgen",
+      "state": "{{ is_state('binary_sensor.arbejdsdag_danmark_i_morgen', 'off') or (is_state('input_boolean.ferie_i_morgen', 'on') and states('input_datetime.ferie_kalenderdato') == now().date().isoformat()) }}",
+      "additional_options": { "availability": "{{ states('binary_sensor.arbejdsdag_danmark_i_morgen') in ['on', 'off'] }}" }
+    },
+    {
+      "entity_id": "switch.julelys_manuel_taend_sluk",
+      "template_type": "switch",
+      "name": "Julelys manuel tænd sluk",
+      "icon": "mdi:string-lights",
+      "value_template": "{% set ns = namespace(entities=[]) %}{% for label in ['julelys', 'julelys_ude', 'julelys_inde'] %}{% set ns.entities = ns.entities + label_entities(label) %}{% for device in label_devices(label) %}{% set ns.entities = ns.entities + device_entities(device) %}{% endfor %}{% endfor %}{{ expand(ns.entities | unique | select('match', '^light\\.') | list) | selectattr('state', 'eq', 'on') | list | count > 0 }}",
+      "turn_on": [
+        { "condition": "state", "entity_id": "input_boolean.juletid", "state": "on" },
+        { "action": "light.turn_on", "target": { "label_id": ["julelys", "julelys_ude", "julelys_inde"] } }
+      ],
+      "turn_off": [
+        { "action": "input_boolean.turn_on", "target": { "entity_id": "input_boolean.julelys_natpause" } },
+        { "action": "script.julelys_sluk" }
+      ]
+    }
+  ]
+}

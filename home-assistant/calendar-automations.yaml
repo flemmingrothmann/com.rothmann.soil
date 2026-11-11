@@ -1,0 +1,70 @@
+# Merge this instance into live automations.yaml to keep it UI editable.
+- id: ferie_fra_hovedkalender
+  alias: Ferie fra Google hovedkalender
+  description: >-
+    Opdaterer ferie i dag/i morgen hvert kvarter. Ferie må stå hvor som helst
+    i titlen, uanset store/små bogstaver. Læser alle overlappende events.
+  mode: single
+  triggers:
+    - trigger: homeassistant
+      event: start
+    - trigger: time_pattern
+      minutes: '/15'
+    - trigger: calendar
+      entity_id: calendar.hovedkaldender
+      event: start
+    - trigger: calendar
+      entity_id: calendar.hovedkaldender
+      event: end
+  actions:
+    - variables:
+        dagens_start: "{{ today_at('00:00').isoformat() }}"
+    - action: calendar.get_events
+      target:
+        entity_id: calendar.hovedkaldender
+      data:
+        start_date_time: '{{ dagens_start }}'
+        end_date_time: '{{ (as_local(as_datetime(dagens_start)) + timedelta(days=2)).isoformat() }}'
+      response_variable: ferie_events
+    - repeat:
+        for_each: [0, 1]
+        sequence:
+          - variables:
+              dag_start: '{{ (as_local(as_datetime(dagens_start)) + timedelta(days=repeat.item)).isoformat() }}'
+              dag_slut: '{{ (as_local(as_datetime(dagens_start)) + timedelta(days=repeat.item + 1)).isoformat() }}'
+              ferie_helper: "{{ 'input_boolean.ferie_i_dag' if repeat.item == 0 else 'input_boolean.ferie_i_morgen' }}"
+              ferie: >-
+                {% set ns = namespace(found=false) %}
+                {% for event in ferie_events['calendar.hovedkaldender']['events'] %}
+                  {% if 'ferie' in (event.get('summary', '') | lower) %}
+                    {% set start = as_datetime(event.start) %}
+                    {% set end = as_datetime(event.end) %}
+                    {% if start.tzinfo is none %}
+                      {% set start = start.replace(tzinfo=now().tzinfo) %}
+                    {% endif %}
+                    {% if end.tzinfo is none %}
+                      {% set end = end.replace(tzinfo=now().tzinfo) %}
+                    {% endif %}
+                    {% if start < as_datetime(dag_slut) and end > as_datetime(dag_start) %}
+                      {% set ns.found = true %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+                {{ ns.found }}
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: '{{ ferie }}'
+                sequence:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: '{{ ferie_helper }}'
+            default:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: '{{ ferie_helper }}'
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: input_datetime.ferie_kalenderdato
+      data:
+        date: '{{ as_datetime(dagens_start).date().isoformat() }}'

@@ -32,6 +32,7 @@ variables:
   moisture_sensor: !input moisture_sensor
   threshold: !input threshold
   plant_name: !input plant_name
+  plant_area: "{{ area_name(moisture_sensor) or '' }}"
   moisture: "{{ states(moisture_sensor) | float(none) }}"
   notification_id: "manual_soil_alarm_{{ moisture_sensor | replace('.', '_') }}"
   upper_threshold: "{{ [95, threshold + 6] | min }}"
@@ -52,7 +53,8 @@ actions:
           - action: persistent_notification.create
             data:
               notification_id: "{{ notification_id }}"
-              title: "{{ plant_name }} skal vandes"
+              title: >-
+                {{ plant_name | trim }}{% if plant_area %} i '{{ plant_area }}'{% endif %} skal vandes
               message: >-
                 Jordfugt er {{ moisture | round(0) }} %. Grænsen er {{ threshold }} %.
       - conditions:

@@ -1,0 +1,21 @@
+{
+  "binary_sensor": {
+    "entity_id": "binary_sensor.julelys_lyst_i_30_minutter",
+    "name": "Julelys dagslys",
+    "state": "{{ states('sensor.terrasse_sensor_ved_terassedor_belysningsstyrke') | float(0) > 550 and states('sensor.indkorsel_sensor_i_gardsplads_belysningsstyrke') | float(0) > 550 }}",
+    "additional_options": {
+      "availability": "{{ is_number(states('sensor.terrasse_sensor_ved_terassedor_belysningsstyrke')) and is_number(states('sensor.indkorsel_sensor_i_gardsplads_belysningsstyrke')) }}"
+    }
+  },
+  "input_number": {
+    "entity_id": "input_number.julelys_dagslys_ventetid",
+    "name": "Julelys dagslys ventetid",
+    "min": 1,
+    "max": 120,
+    "step": 1,
+    "unit_of_measurement": "min",
+    "mode": "box",
+    "icon": "mdi:timer-outline",
+    "default_value": 30
+  }
+}

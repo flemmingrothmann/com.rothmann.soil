@@ -4,10 +4,8 @@ default_config:
 homeassistant:
   packages: !include_dir_named packages
 
-http:
-  use_x_forwarded_for: true
-  trusted_proxies:
-    - 172.18.0.0/16
+# HTTP security is managed in Settings > System > Network (HA 2026.8+).
+# See ../docs/home-assistant-security.md; do not reintroduce a YAML http block.
 
 # Load frontend themes from the themes folder
 frontend:

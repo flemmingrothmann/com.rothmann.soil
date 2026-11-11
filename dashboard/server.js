@@ -1971,6 +1971,168 @@ function getDailyMinimumPrices(prices) {
   }, {});
 }
 
+function getDanishDateKeyForBucket(bucket) {
+  return getDanishDateKey(new Date(bucket.startsAt));
+}
+
+/**
+ * Simuler batteri-lagring for en enkelt dag.
+ *
+ * Algoritme (per dag, time for time):
+ * 1. Solcelleoverskud (negativt kwh) lader batteriet til cost=0
+ * 2. Restkapacitet lades fra nettet i de billigste timer (max 11 kW/t, max 16 kWh)
+ * 3. Batteriet aflades i de dyreste timer for at undgå net-indkøb
+ *
+ * Parametre: capacity=16 kWh, maxRate=11 kW/t, efficiency=0.9 (round-trip)
+ */
+/**
+ * Simuler batteri på tværs af alle dage i data-sættet.
+ *
+ * Ladestanden (SoC) starter på 50% af kapacitet og spores kontinuerligt
+ * på tværs af alle dage – den nulstilles aldrig til nul.
+ *
+ * Parametre: capacity=16 kWh, maxRate=11 kW/t, efficiency=0.9 (round-trip)
+ */
+let batteryRevision = 0;
+
+function simulateBattery(buckets, prices, params) {
+  batteryRevision += 1;
+  const { capacity, maxRate, efficiency } = params;
+
+  const days = new Map();
+  for (const bucket of buckets) {
+    if (!bucket.priceDkkPerKwh || !Number.isFinite(bucket.kwh)) continue;
+    const dayKey = getDanishDateKeyForBucket(bucket);
+    if (!days.has(dayKey)) days.set(dayKey, []);
+    days.get(dayKey).push(bucket);
+  }
+
+  // Start SoC på 50% af kapacitet (8 kWh for 16 kWh batteri)
+  let soc = capacity * 0.5;
+  const initialSoc = soc;
+
+  let totalActual = 0;
+  let totalSimulated = 0;
+  let totalSolar = 0;
+  let totalGrid = 0;
+  let totalDischarge = 0;
+  const dayResults = [];
+
+  for (const [dayKey, dayBuckets] of days) {
+    const dayBucketsSorted = dayBuckets.slice().sort(
+      (a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt),
+    );
+
+    const hours = dayBucketsSorted
+      .filter((b) => Number.isFinite(b.priceDkkPerKwh))
+      .map((b) => ({
+        kwh: Number(b.kwh) || 0,
+        price: Number(b.priceDkkPerKwh),
+        startsAt: b.startsAt,
+      }));
+
+    // Faktisk kost uden batteri: betal for alt positivt forbrug
+    const actualCost = hours.reduce(
+      (sum, h) => sum + Math.max(0, h.kwh) * h.price,
+      0,
+    );
+
+    let solarChargeKwh = 0;
+    let gridChargeKwh = 0;
+    let dischargeKwh = 0;
+
+    // Spor pr. time hvor meget der lades fra nettet og aflades til forbrug
+    const chargeGridByHour = new Map();
+    const dischargeByHour = new Map();
+
+    const dayStartSoc = soc;
+    // --- Step 1: Lad fra solcelleoverskud (gratis), kronologisk ---
+    for (const h of hours) {
+      if (h.kwh < 0 && soc < capacity) {
+        const exportKwh = Math.abs(h.kwh);
+        const chargeSpace = capacity - soc;
+        const charge = Math.min(exportKwh, chargeSpace, maxRate);
+        soc += charge * efficiency;
+        solarChargeKwh += charge;
+      }
+    }
+
+    // --- Step 2: Lad fra nettet i de billigste timer ---
+    const cheapHours = [...hours]
+      .filter((h) => h.kwh > 0)
+      .sort((a, b) => a.price - b.price);
+    for (const h of cheapHours) {
+      if (soc >= capacity) break;
+      const chargeSpace = capacity - soc;
+      const charge = Math.min(chargeSpace, maxRate);
+      soc += charge * efficiency;
+      gridChargeKwh += charge;
+      chargeGridByHour.set(h.startsAt, (chargeGridByHour.get(h.startsAt) || 0) + charge);
+    }
+
+    // --- Step 3: Aflad i de dyreste timer ---
+    const expensiveHours = [...hours]
+      .filter((h) => h.kwh > 0)
+      .sort((a, b) => b.price - a.price);
+    for (const h of expensiveHours) {
+      if (soc <= 0) break;
+      // Max afladning begrænses af hvad batteriet kan levere (soc * effektivitet)
+      const maxDischarge = soc * efficiency;
+      const discharge = Math.min(h.kwh, maxDischarge, maxRate);
+      soc -= discharge / efficiency;
+      dischargeKwh += discharge;
+      dischargeByHour.set(h.startsAt, (dischargeByHour.get(h.startsAt) || 0) + discharge);
+    }
+
+    // --- Step 4: Beregn simuleret kost time for time ---
+    // Net import = forbrug - batteridækning + netladning
+    // Solcelleladning koster 0 (allerede taget højde for via negativt kwh i forbrug)
+    let simulatedCost = 0;
+    for (const h of hours) {
+      const consumption = Math.max(0, h.kwh);
+      if (consumption <= 0 && (chargeGridByHour.get(h.startsAt) || 0) <= 0) continue;
+      const coveredByBattery = dischargeByHour.get(h.startsAt) || 0;
+      const chargedFromGrid = chargeGridByHour.get(h.startsAt) || 0;
+      const netImport = Math.max(0, consumption - coveredByBattery + chargedFromGrid);
+      simulatedCost += netImport * h.price;
+    }
+
+    totalActual += actualCost;
+    totalSimulated += simulatedCost;
+    totalSolar += solarChargeKwh;
+    totalGrid += gridChargeKwh;
+    totalDischarge += dischargeKwh;
+
+    dayResults.push({
+      dayKey,
+      actualCost,
+      simulatedCost: Math.max(0, simulatedCost),
+      savings: actualCost - Math.max(0, simulatedCost),
+      solarChargeKwh,
+      gridChargeKwh,
+      dischargeKwh,
+      startSoc: dayStartSoc,
+      endSoc: soc,
+    });
+  }
+
+  return {
+    actualCost: totalActual,
+    simulatedCost: totalSimulated,
+    savingsDkk: totalActual - totalSimulated,
+    savingsPercent:
+      totalActual > 0 ? ((totalActual - totalSimulated) / totalActual) * 100 : 0,
+    solarChargeKwh: totalSolar,
+    gridChargeKwh: totalGrid,
+    dischargeKwh: totalDischarge,
+    days: days.size,
+    revision: batteryRevision,
+    initialSoc,
+    finalSoc: soc,
+    dayResults,
+  };
+}
+
 function getHourPatterns(buckets, prices) {
   const dailyMinimumPrices = getDailyMinimumPrices(prices);
   const groups = new Map();
@@ -2148,6 +2310,11 @@ async function getEnergyDetailDashboard(periodValue = "day", offsetValue = 0) {
       .slice()
       .sort((a, b) => b.costDkk - a.costDkk)
       .slice(0, 5),
+    battery: simulateBattery(pricedBuckets, prices, {
+      capacity: Number(process.env.BATTERY_CAPACITY_KWH || 16),
+      maxRate: Number(process.env.BATTERY_MAX_RATE_KW || 11),
+      efficiency: Number(process.env.BATTERY_EFFICIENCY || 0.9),
+    }),
   };
 }
 

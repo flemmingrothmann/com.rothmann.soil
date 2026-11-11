@@ -1,5 +1,23 @@
 # Home Assistant Blueprints
 
+## Bevægelseslys med slukningsvarsel
+
+`automation/wingman/motion-light-warning.yaml` tænder ved bevægelse og dæmper
+som varsel inden slukning. Ny bevægelse afbryder nedtællingen og gendanner
+normal lysstyrke. Ukendt/utilgængelig sensor afbryder også nedtællingen.
+
+- Opret én automation pr. rum via **Indstillinger → Automatiseringer og scener
+  → Blueprints → Bevægelseslys med dæmpet slukningsvarsel**.
+- Vælg sensor, dæmpbare lys, normal lysstyrke, ventetid, varslingsstyrke og
+  varslingstid. Standard: 100 %, 5 minutter, 30 %, 30 sekunder.
+- Brug en sensorgruppe ved flere sensorer; gruppen skal først melde fri, når
+  alle sensorer er fri. Undgå andre automatikker, der styrer de samme lys.
+- Ventetiden starter, når sensoren melder fri, ikke ved sidste fysiske bevægelse.
+- Genstart/reload afbryder ventetider. Næste sensorændring genoptager styringen.
+- Verificér fysisk: bevægelse tænder; fri sensor giver varsel og slukning;
+  bevægelse både før og under varslet gendanner normal styrke uden senere
+  slukning. Sensorudfald må ikke starte slukning.
+
 `automation/wingman/soil-moisture-alarm.yaml` owns the canonical watering alarm for an HA/Z2M soil sensor.
 
 - Alarm on: moisture is at or below the configured threshold.

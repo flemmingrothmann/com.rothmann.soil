@@ -88,7 +88,7 @@ const DEFAULT_DATAHUB_PRICE_COMPONENTS = [
 const DATAHUB_PRICE_COMPONENTS_JSON =
   process.env.DATAHUB_PRICE_COMPONENTS_JSON ||
   JSON.stringify(DEFAULT_DATAHUB_PRICE_COMPONENTS);
-const ENERGY_CAPABILITIES = ["meter_power", "meter_power.imported"];
+const ENERGY_CAPABILITIES = ["meter_power", "meter_power.imported", "meter_power.exported"];
 const ENERGY_METER_MIGRATIONS = JSON.parse(process.env.ENERGY_METER_MIGRATIONS_JSON || "[]");
 for (const migration of ENERGY_METER_MIGRATIONS) {
   if (!migration.previousId || !migration.currentId || !Number.isFinite(Date.parse(migration.switchedAt)))
@@ -328,12 +328,14 @@ async function initializeDatabase() {
       source text not null default 'meter_delta',
       updated_at timestamptz not null default now(),
       primary key (price_area, bucket_start, homey_device_id, capability),
-      constraint energy_usage_15m_ends_after_start check (bucket_end > bucket_start),
-      constraint energy_usage_15m_kwh_nonnegative check (kwh >= 0)
+      constraint energy_usage_15m_ends_after_start check (bucket_end > bucket_start)
     );
 
     create index if not exists ix_energy_usage_15m_device_time
       on energy_usage_15m (homey_device_id, bucket_start desc);
+
+    alter table energy_usage_15m
+      drop constraint if exists energy_usage_15m_kwh_nonnegative;
 
     create table if not exists zigbee_route_node_observation (
       bucket_start timestamptz not null,
@@ -1969,11 +1971,15 @@ async function rebuildEnergyUsage({ from, to, priceArea }) {
           homey_device_id,
           max(device_name) as device_name,
           capability,
-          sum(greatest(value_number - previous_value, 0))::numeric as kwh
+          sum(
+            case when capability = 'meter_power.exported'
+            then -(value_number - previous_value)
+            else (value_number - previous_value)
+            end
+          )::numeric as kwh
         from ordered
         where previous_value is not null
           and event_time >= $1
-          and value_number >= previous_value
         group by bucket_start, homey_device_id, capability
       )
       select d.bucket_start,
@@ -1985,7 +1991,7 @@ async function rebuildEnergyUsage({ from, to, priceArea }) {
         $3 as price_area,
         p.effective_dkk_per_kwh,
         case
-          when d.kwh <= 0 or p.effective_dkk_per_kwh is null then null
+          when d.kwh <= 0 or p.effective_dkk_per_kwh is null then 0
           else d.kwh * p.effective_dkk_per_kwh
         end as cost_dkk,
         now()
@@ -1994,7 +2000,6 @@ async function rebuildEnergyUsage({ from, to, priceArea }) {
         on p.price_area = $3
        and d.bucket_start >= p.starts_at
        and d.bucket_start < p.ends_at
-      where d.kwh > 0
       on conflict (price_area, bucket_start, homey_device_id, capability) do update set
         bucket_end = excluded.bucket_end,
         device_name = excluded.device_name,

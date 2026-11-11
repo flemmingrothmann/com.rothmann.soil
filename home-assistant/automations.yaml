@@ -1,4 +1,69 @@
 # Blueprint instances live here so Home Assistant can edit them from the UI.
+- id: loftlys_flemmings_kontor_altid_fuld_styrke
+  alias: Loftlys Flemmings Kontor altid fuld styrke
+  description: >-
+    Retter lysstyrken til 100 %, når lyset er tændt, fordi lyskilden ikke er
+    dæmpbar. Tænder aldrig et slukket lys. Kan ikke forhindre kortvarig dæmpning.
+  triggers:
+    - trigger: state
+      entity_id: light.0xdc8e95fffef23aec
+      to: "on"
+    - trigger: state
+      entity_id: light.0xdc8e95fffef23aec
+      attribute: brightness
+    - trigger: homeassistant
+      event: start
+  conditions:
+    - condition: state
+      entity_id: light.0xdc8e95fffef23aec
+      state: "on"
+    - condition: template
+      value_template: >-
+        {{ state_attr('light.0xdc8e95fffef23aec', 'brightness') != 255 }}
+  actions:
+    - action: light.turn_on
+      target:
+        entity_id: light.0xdc8e95fffef23aec
+      data:
+        brightness_pct: 100
+        transition: 0
+  mode: single
+- id: manuel_vanding_push_notifikation
+  alias: Manuel vanding push til mobilapps
+  description: >-
+    Sender manuelle vandingsalarmer højst én gang pr. 24 timer pr. sensor.
+    Seneste push gemmes i en dato/tid-helper og bevares ved genstart.
+    Tilføj nye mobilapps til listen over handlinger ved tilknytning.
+  triggers:
+    - trigger: persistent_notification
+      update_type:
+        - added
+        - updated
+  conditions:
+    - condition: template
+      value_template: >-
+        {{ trigger.notification.notification_id.startswith('manual_soil_alarm_') }}
+  actions:
+    - variables:
+        last_push_helper: "input_datetime.{{ trigger.notification.notification_id }}_last_push"
+    - condition: template
+      value_template: >-
+        {{ states(last_push_helper) not in ['unknown', 'unavailable'] and
+           as_timestamp(now()) - as_timestamp(states(last_push_helper), 0) >= 86400 }}
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: "{{ last_push_helper }}"
+      data:
+        timestamp: "{{ as_timestamp(now()) | round(0, 'ceil') | int }}"
+    - action: notify.mobile_app_flemmings_s23
+      continue_on_error: true
+      data:
+        title: "{{ trigger.notification.title }}"
+        message: "{{ trigger.notification.message }}"
+        data:
+          tag: "{{ trigger.notification.notification_id }}"
+  mode: queued
+  max: 10
 - id: myggeplante_soil_moisture_alarm
   alias: Myggeplante jordfugt alarm
   use_blueprint:
@@ -329,3 +394,95 @@
     - action: input_boolean.turn_off
       target:
         entity_id: input_boolean.vitrine_og_skaenk_manuel_farve
+- id: udendoers_lys_atelieret_folger_husfacade_have
+  alias: Udendørs lys Atelieret følger Husfacade have
+  description: Udendørs lys Atelieret kopierer Husfacade have på tænd/sluk og lysstyrke.
+  mode: queued
+  triggers:
+    - trigger: state
+      entity_id: light.terrasse_husfacade_have
+      to: "on"
+    - trigger: state
+      entity_id: light.terrasse_husfacade_have
+      to: "off"
+    - trigger: state
+      entity_id: light.terrasse_husfacade_have
+      attribute: brightness
+  conditions:
+    - condition: template
+      value_template: >-
+        {% set src = states('light.terrasse_husfacade_have') %}
+        {% set dst = states('light.0x881a14fffe2ef16c') %}
+        {% if src == 'off' and dst == 'off' %}false
+        {% elif src == 'on' and dst == 'on' and state_attr('light.terrasse_husfacade_have', 'brightness') == state_attr('light.0x881a14fffe2ef16c', 'brightness') %}false
+        {% else %}true{% endif %}
+  actions:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: light.terrasse_husfacade_have
+              state: "off"
+          sequence:
+            - action: light.turn_off
+              target:
+                entity_id: light.0x881a14fffe2ef16c
+        - conditions:
+            - condition: state
+              entity_id: light.terrasse_husfacade_have
+              state: "on"
+          sequence:
+            - action: light.turn_on
+              target:
+                entity_id: light.0x881a14fffe2ef16c
+              data:
+                brightness_pct: >-
+                  {{ (state_attr('light.terrasse_husfacade_have', 'brightness') | int(0) / 255 * 100) | round(0) }}
+- id: '1793130508414'
+  alias: Grolys følger dagslys
+  description: >-
+    Tænder lyset ved solopgang og slukker det ved solnedgang.
+    Ved HA-start synkroniseres lyset med den aktuelle solstatus.
+  triggers:
+    - trigger: sun
+      event: sunrise
+      id: sunrise
+    - trigger: sun
+      event: sunset
+      id: sunset
+    - trigger: homeassistant
+      event: start
+      id: startup
+  conditions: []
+  actions:
+    - choose:
+        - conditions:
+            - condition: trigger
+              id: sunrise
+          sequence:
+            - action: switch.turn_on
+              target:
+                entity_id: switch.0xa4c1383638bad6dd
+        - conditions:
+            - condition: trigger
+              id: sunset
+          sequence:
+            - action: switch.turn_off
+              target:
+                entity_id: switch.0xa4c1383638bad6dd
+        - conditions:
+            - condition: trigger
+              id: startup
+          sequence:
+            - if:
+                - condition: state
+                  entity_id: sun.sun
+                  state: above_horizon
+              then:
+                - action: switch.turn_on
+                  target:
+                    entity_id: switch.0xa4c1383638bad6dd
+              else:
+                - action: switch.turn_off
+                  target:
+                    entity_id: switch.0xa4c1383638bad6dd
+  mode: single

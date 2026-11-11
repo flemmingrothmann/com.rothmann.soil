@@ -857,7 +857,37 @@ function renderEnergyDashboard(data) {
     ${renderTimingGauge(data)}
     ${renderEnergyChart(data)}
     ${renderHourPatternChart(data)}
+    ${renderBatteryPanel(data.battery)}
   </section>`;
+}
+
+function renderBatteryPanel(battery) {
+  if (!battery) return '';
+  const b = battery;
+  const savingsClass = b.savingsDkk > 0 ? 'positive' : '';
+  const startSocPct = ((b.initialSoc ?? 0) / 16 * 100).toFixed(0);
+  const endSocPct = ((b.finalSoc ?? 0) / 16 * 100).toFixed(0);
+  return `<section class="energy-panel battery-panel">
+    <div class="battery-heading">
+      <span>Batteri-simulering (16 kWh · 11 kW/t)</span>
+      <strong class="battery-savings ${savingsClass}">${formatSignedMoney(b.savingsDkk)} / ${b.savingsPercent.toFixed(1)}% <small>revision ${b.revision}</small></strong>
+    </div>
+    <div class="battery-stats">
+      ${renderBatteryStat('Betalt uden batteri', formatMoney(b.actualCost))}
+      ${renderBatteryStat('Betalt med batteri', formatMoney(b.simulatedCost))}
+      ${renderBatteryStat('Besparelse', formatMoney(b.savingsDkk))}
+      ${renderBatteryStat('Solcelle-ladning', formatDecimal(b.solarChargeKwh, '', 2), ' kWh')}
+      ${renderBatteryStat('Net-ladning', formatDecimal(b.gridChargeKwh, '', 2), ' kWh')}
+      ${renderBatteryStat('Batteri-afladning', formatDecimal(b.dischargeKwh, '', 2), ' kWh')}
+      ${renderBatteryStat('Start SoC', `${startSocPct} %`)}
+      ${renderBatteryStat('Slut SoC', `${endSocPct} %`)}
+    </div>
+    <p class="energy-help">Simulering starter batteriet på 50% SoC og sporer ladestanden kontinuerligt på tværs af dage. Solcelleoverskud lades til cost=0. Resten lades i billigste timer og aflades i dyreste timer.</p>
+  </section>`;
+}
+
+function renderBatteryStat(label, value, suffix = '') {
+  return `<article class="energy-stat"><span>${escapeHtml(label)}</span><strong>${value}${escapeHtml(suffix)}</strong></article>`;
 }
 
 function renderOverviewCard(card) {

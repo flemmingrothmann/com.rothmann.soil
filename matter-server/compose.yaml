@@ -1,0 +1,26 @@
+name: matter-server
+
+services:
+  matter-server:
+    image: ghcr.io/matter-js/matterjs-server:1.5.5
+    container_name: matter-server
+    restart: unless-stopped
+    network_mode: host
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: Europe/Copenhagen
+      STORAGE_PATH: /data
+      LISTEN_ADDRESS: 127.0.0.1
+      PRIMARY_INTERFACE: enp2s0
+    volumes:
+      - matter-server-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+volumes:
+  matter-server-data:

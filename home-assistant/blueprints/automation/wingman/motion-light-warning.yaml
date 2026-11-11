@@ -1,0 +1,113 @@
+blueprint:
+  name: Bevægelseslys med dæmpet slukningsvarsel
+  description: >-
+    Tænder ved bevægelse. Efter en periode uden bevægelse dæmpes lyset som
+    varsel, inden det slukkes. Ny bevægelse afbryder varslet og gendanner
+    normal lysstyrke. Vælg dæmpbare lys og brug kun én styring af disse lys.
+    Sensorens egen tid til at melde fri kommer oven i ventetiden.
+    Ventetider afbrydes ved genstart eller genindlæsning af automatikker;
+    næste sensorændring starter styringen igen.
+  domain: automation
+  input:
+    motion_sensor:
+      name: Bevægelsessensor
+      description: Vælg bevægelse eller tilstedeværelse, eventuelt en sensorgruppe.
+      selector:
+        entity:
+          filter:
+            domain: binary_sensor
+            device_class:
+              - motion
+              - occupancy
+              - presence
+    lights:
+      name: Lys
+      description: Vælg ét eller flere dæmpbare lys eller en lysgruppe.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: light
+    normal_brightness:
+      name: Normal lysstyrke
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider
+    inactivity_minutes:
+      name: Ventetid uden bevægelse
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 0.5
+          unit_of_measurement: min
+          mode: box
+    warning_brightness:
+      name: Lysstyrke under varsel
+      description: Vælg en lavere værdi end normal lysstyrke.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider
+    warning_seconds:
+      name: Varslingstid inden slukning
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 300
+          step: 1
+          unit_of_measurement: s
+          mode: box
+triggers:
+  - trigger: state
+    entity_id: !input motion_sensor
+    # State changes only: attribute updates must not restart the countdown.
+    to: null
+conditions: []
+actions:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: !input motion_sensor
+            state: "on"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: !input lights
+            data:
+              brightness_pct: !input normal_brightness
+      - conditions:
+          - condition: state
+            entity_id: !input motion_sensor
+            state: "off"
+        sequence:
+          - delay:
+              minutes: !input inactivity_minutes
+          - condition: state
+            entity_id: !input motion_sensor
+            state: "off"
+          - action: light.turn_on
+            target:
+              entity_id: !input lights
+            data:
+              brightness_pct: !input warning_brightness
+          - delay:
+              seconds: !input warning_seconds
+          - condition: state
+            entity_id: !input motion_sensor
+            state: "off"
+          - action: light.turn_off
+            target:
+              entity_id: !input lights
+mode: restart

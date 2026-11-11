@@ -125,6 +125,9 @@ Systemet er ikke faerdig-recovered foer alle disse er OK:
 
 - `curl -fsS http://127.0.0.1:8788/health` returnerer OK.
 - `https://home.knalloo.dk/login` returnerer HTTP `200`.
+- HA-adgang på `https://ha.knalloo.dk` virker med autentificeret REST og WebSocket,
+  og HA's `trusted_proxies` matcher Caddys faktiske kilde-IP. Følg
+  [HA proxy-recovery](#home-assistant-proxy-recovery) efter restore/genskabelse af Caddy.
 - Postgres har `timescaledb` extension og forventet `ingest_event` count/range.
 - Homey Wingman queue drainer uden vedvarende fejl.
 - Dashboard viser aktuelle data.
@@ -133,6 +136,45 @@ Systemet er ikke faerdig-recovered foer alle disse er OK:
 - Default route gaar via Ethernet `enp2s0`, og WiFi `wlp1s0` er aktiv fallback.
 - `hubert-backup.timer` og `hubert-wifi-watchdog.timer` er active.
 - Ny post-restore backup og restore-test er bestaaet.
+
+### Home Assistant Proxy-Recovery
+
+**Obligatorisk efter restore eller genskabelse af Caddy-containeren:** Caddys
+Docker-IP er dynamisk, mens HA kun stoler på den konkrete proxy-IP. Den verificerede
+adresse pr. 2026-11-09 er `172.18.0.3/32`; antag ikke, at den er uændret efter restore.
+
+1. Find Caddys aktuelle IP på `hubert`:
+
+   ```sh
+   ssh fro@192.168.100.66 "docker inspect caddy-reverse-proxy --format '{{json .NetworkSettings.Networks}}'"
+   ```
+
+2. Ved afvist HTTPS-adgang: åbn HA lokalt på `http://192.168.100.66:8123`.
+   Under **Indstillinger → System → Netværk → HTTP-server** kontrolleres
+   `use_x_forwarded_for` og `trusted_proxies`. Opdatér om nødvendigt proxyadressen
+   til Caddys aktuelle IPv4-adresse med `/32`. Deaktivér ikke proxykontrollen,
+   og udvid ikke tilliden til hele LAN'et som workaround.
+3. Bevar IP-blokering efter `30` fejlede loginforsøg. Ændringer foretages i HA's
+   UI eller via WebSocket `http/config/configure`, **ikke** i `configuration.yaml`
+   eller ved direkte redigering af `.storage` under drift.
+4. Efter genstart: verificér lokal adgang og autentificeret HTTPS/REST/WebSocket.
+   Bekræft den nye HTTP-konfiguration i UI eller med `http/config/promote` inden
+   fem minutter; ellers ruller HA automatisk tilbage.
+5. Kontrollér at `pending` er tom, at indstillingerne er gemt i `stable`, og at MFA
+   stadig virker. Recovery er ikke færdig, før både browser og mobilapp kan tilgå HA.
+
+HA-volumenet `home-assistant_home-assistant-config` skal restores med `.storage`,
+som indeholder HTTP-indstillinger, brugere/MFA, gendannelsesdata for seneste
+vandingspush pr. sensor og øvrige UI-konfigurationer.
+En restore af repoets YAML-filer alene er ikke en fuld HA-recovery. Behandl hele
+volumenbackupen som hemmelig; udskriv ikke auth-data eller tokens.
+
+Kontrollér også `input_datetime.manual_soil_alarm_<sensor-id>_last_push` efter
+restore: cooldown skal fortsat være 24 timer pr. sensor. Mangler historikken,
+sættes tidspunktet konservativt til nu, før push-automationen aktiveres, så
+recovery ikke giver ekstra beskeder. Se [vandingsnotifikationer](manual-watering-notifications.md).
+
+Detaljer og seneste verifikation: [Home Assistant-sikkerhed](home-assistant-security.md).
 
 ## Ren Ubuntu Reinstall Remedier
 
@@ -311,6 +353,9 @@ journalctl -b --no-pager | grep -E 'CTRL-EVENT-DISCONNECTED|Connection to AP|WPA
 - Postgres backup er logical-first: `pg_dump -Fc` plus `pg_dumpall --globals-only`.
 - Den live Postgres data-volume arkiveres ikke som filkopi; den erstattes af logical dump for at undgaa inkonsistente Postgres-datafiler.
 - Ikke-Postgres Docker-volumener arkiveres som `tar.gz` under `docker-volumes/`.
+- HA's config-volumen skal medtages inklusive `.storage` (HTTP/proxy, brugere og MFA).
+  Efter restore skal [HA proxy-recovery](#home-assistant-proxy-recovery) gennemføres;
+  Caddys nye Docker-IP kan afvige fra HA's gendannede `trusted_proxies`.
 - System-/deploy-konfiguration arkiveres under `system/`, inklusive `/opt/soil`, `/etc/fstab`, `/etc/systemd/system` og `/etc/docker` hvis den findes.
 - Docker restore-manifester arkiveres under `system/` som `docker-containers-*.txt`, `docker-compose-paths-*.txt`, `docker-container-inspect-*.json`, `docker-network-inspect-*.json` og `docker-volume-inspect-*.json`.
 - Backup-run logs gemmes under `/mnt/hubert-backup/hubert/logs/`.

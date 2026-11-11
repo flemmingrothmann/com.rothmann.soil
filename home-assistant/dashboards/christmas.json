@@ -1,0 +1,92 @@
+{
+  "title": "Julelys",
+  "views": [
+    {
+      "title": "Julelys",
+      "path": "julelys",
+      "icon": "mdi:pine-tree",
+      "cards": [
+        {
+          "type": "markdown",
+          "content": "# Julelys 🎄\nJuletid er master. Manuel tænd virker også efter godnat; næste automatiske sluk slår lyset fra igen."
+        },
+        {
+          "type": "tile",
+          "entity": "input_boolean.juletid",
+          "name": "Juletid · master",
+          "tap_action": { "action": "toggle" },
+          "icon_tap_action": { "action": "toggle" }
+        },
+        {
+          "type": "tile",
+          "entity": "switch.julelys_manuel_taend_sluk",
+          "name": "Julelys · tænd / sluk",
+          "tap_action": { "action": "toggle" },
+          "icon_tap_action": { "action": "toggle" }
+        },
+        {
+          "type": "entities",
+          "title": "Udendørs julelys",
+          "show_header_toggle": false,
+          "entities": [
+            "light.atelier_hyggelys_udenfor_atelieret",
+            "light.julelys_outdoor_plug_a",
+            "light.julelys_outdoor_plug_matter"
+          ]
+        },
+        {
+          "type": "entities",
+          "title": "Automatik og dagslys",
+          "show_header_toggle": false,
+          "entities": [
+            "binary_sensor.julelys_morkt",
+            "input_number.julelys_morke_ventetid",
+            "binary_sensor.julelys_lyst_i_30_minutter",
+            "input_number.julelys_dagslys_ventetid",
+            "binary_sensor.julelys_fridag_i_dag",
+            "binary_sensor.julelys_fridag_i_morgen",
+            { "type": "simple-entity", "entity": "input_boolean.ferie_i_dag", "name": "Ferie i dag · hovedkalender" },
+            { "type": "simple-entity", "entity": "input_boolean.ferie_i_morgen", "name": "Ferie i morgen · hovedkalender" },
+            { "type": "simple-entity", "entity": "input_datetime.ferie_kalenderdato", "name": "Feriekalender gyldig for dato" },
+            { "entity": "sensor.terrasse_sensor_ved_terassedor_belysningsstyrke", "name": "Lux · terrasse" },
+            { "entity": "sensor.indkorsel_sensor_i_gardsplads_belysningsstyrke", "name": "Lux · gårdsplads" },
+            { "entity": "input_boolean.julelys_natpause", "name": "Pause automatisk tænding" }
+          ]
+        },
+        {
+          "type": "markdown",
+          "content": "**Tider:** Kl. 07 på arbejdsdage, solopgang på fridage. Sluk kl. 23 før arbejdsdag / kl. 01 på fridag.\n\n**Labels:** Julelys Ude / Julelys Inde styrer medlemskab uafhængigt af område. Stikkontakter skal vises som lys.\n\n**Google Kalender:** Fridage omfatter weekend, danske helligdage og events i hovedkalenderen med ‘ferie’ et vilkårligt sted i titlen, uanset store/små bogstaver. Opdateres hvert kvarter. Flerdagesferie tæller alle de omfattede dage."
+        }
+      ]
+    },
+    {
+      "title": "Hjælp",
+      "path": "hjaelp",
+      "icon": "mdi:help-circle-outline",
+      "cards": [
+        {
+          "type": "markdown",
+          "content": "# Julelys · hjælp\n\n## Hvor ændrer jeg hvad?\n\n| Ændring | Find i HA |\n|---|---|\n| Luxgrænse for tænd | Hjælpere → **Julelys mørkt** → skabelonindstillinger |\n| Ventetid før tænd | **Julelys mørke ventetid** på forsiden |\n| Luxgrænse for sluk | Hjælpere → **Julelys dagslys** → skabelonindstillinger |\n| Ventetid før sluk | **Julelys dagslys ventetid** på forsiden |\n| Kl. 07 / solopgang | Automatikker → **Julelys ude morgen** |\n| Kl. 23 / kl. 01 | Automatikker → **Julelys seneste sluk** |\n| Godnat-sluk | Automatikker → **Julelys sluk ved godnat** |\n| Fælles sluk-handling | Scripts → **Julelys sluk inde og ude** |\n| Manuel kontakts logik | Hjælpere → **Julelys manuel tænd sluk** |\n| Ferie-match / kalender | Automatikker → **Ferie fra Google hovedkalender** |\n| Fridagsberegning | Hjælpere → **Julelys fridag i dag / i morgen** |\n\nLuxskabelonerne indeholder én grænse for hver sensor. Ret begge tal, hvis grænserne skal være ens. Begge sensorer skal opfylde betingelsen.\n\nÆndret ventetid bruges ved næste overgang til mørke/dagslys. En genstart eller genindlæsning starter en igangværende ventetid forfra."
+        },
+        {
+          "type": "grid",
+          "columns": 3,
+          "square": false,
+          "cards": [
+            { "type": "button", "name": "Hjælpere", "icon": "mdi:form-select", "tap_action": { "action": "navigate", "navigation_path": "/config/helpers" } },
+            { "type": "button", "name": "Automatikker", "icon": "mdi:robot", "tap_action": { "action": "navigate", "navigation_path": "/config/automation/dashboard" } },
+            { "type": "button", "name": "Scripts", "icon": "mdi:script-text-outline", "tap_action": { "action": "navigate", "navigation_path": "/config/script/dashboard" } }
+          ]
+        },
+        {
+          "type": "markdown",
+          "content": "## Tilføj eller flyt julelys\n\n1. Stikkontakt: Opret en **Skift enhedstype → Lys**-helper under Hjælpere.\n2. Giv lyset/enheden **Julelys** og enten **Julelys Ude** eller **Julelys Inde**. Området er frit.\n3. Fjern den gamle Inde/Ude-label, når lyset flyttes.\n4. Skal lyset helt ud, fjernes alle julelys-labels. Kontrollér også medlemskab af en eventuel **Julelys**-gruppe under Hjælpere.\n\n## Ferie\n\nOpret et event i Google-hovedkalenderen med **ferie** et vilkårligt sted i titlen. Store/små bogstaver er ligegyldige. Flerdages-events tæller alle de omfattede dage. Kalenderen opdateres hvert kvarter. **Ferie i dag/i morgen** og kalenderdatoen vedligeholdes automatisk."
+        },
+        {
+          "type": "markdown",
+          "content": "## Hvis noget ikke virker\n\n1. Kontrollér **Juletid**, **Pause automatisk tænding**, begge luxværdier og mørke-/dagslysindikatoren på forsiden. Indikatoren viser betingelsen straks; ventetiden ligger i automatikken.\n2. Åbn den relevante automatik → **Spor**. Se seneste kørsel og hvilken betingelse/handling der stoppede. **Kør handlinger** tester ikke triggeren eller ventetiden.\n3. Er ét lys utilgængeligt, kontrollér det under Enheder og tjenester. En enhed, der var offline ved tænding, tænder ikke automatisk ved genforbindelse.\n4. Ved feriefejl: Kontrollér Google-integrationen, eventtitlen og at **Feriekalender gyldig for dato** er i dag.\n\n**Manuel tænd** virker efter godnat og seneste slukketid, når Juletid er slået til. Næste automatiske sluk slukker igen."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# No initial value: HA must restore the last push time instead of resetting it.
+input_datetime:
+  manual_soil_alarm_sensor_0xffffb40e06059d35_soil_moisture_last_push:
+    name: Efeu seneste vandingspush
+    has_date: true
+    has_time: true
+  manual_soil_alarm_sensor_0xffffb40e0605b225_soil_moisture_last_push:
+    name: Chili drivhus seneste vandingspush
+    has_date: true
+    has_time: true
