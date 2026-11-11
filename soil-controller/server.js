@@ -5,6 +5,7 @@ const http = require('http');
 const path = require('path');
 const mqtt = require('mqtt');
 const { classifyCircuitMode, generatedHelperEntities } = require('./wateringCircuitMode');
+const { ZigbeeIdentityRoutes, cachedStateByIeee, profileMatchesDevice, observeProfileTopics } = require('./zigbeeIdentity');
 
 const MQTT_URL = process.env.MQTT_URL || 'mqtt://mosquitto:1883';
 const MQTT_USERNAME = process.env.MQTT_USERNAME || '';
@@ -20,6 +21,7 @@ const HOME_ASSISTANT_PACKAGES_DIR = process.env.HOME_ASSISTANT_PACKAGES_DIR || '
 const HOME_ASSISTANT_AUTOMATIONS_FILE = process.env.HOME_ASSISTANT_AUTOMATIONS_FILE || '/home-assistant/config/automations.yaml';
 const PORT = Number(process.env.PORT || 8790);
 const QUEUE_FILE = process.env.QUEUE_FILE || '/data/wingman-queue.json';
+const ZIGBEE_ROUTES_FILE = process.env.ZIGBEE_ROUTES_FILE || '/data/zigbee-device-topics.json';
 const MAX_QUEUE_EVENTS = Number(process.env.MAX_QUEUE_EVENTS || 100000);
 const MIN_RETRY_DELAY_MS = 15000;
 const MAX_RETRY_DELAY_MS = 5 * 60 * 1000;
@@ -259,7 +261,7 @@ async function restoreHelperValues(values, targetEntities, sensors) {
 function updateCircuitProfiles(plan) {
   const helpers = generatedHelperEntities(plan.slug, plan.sensors);
   const valveProfile = Object.entries(profiles).find(([id, profile]) => profile.type === 'watering_valve' && (
-    profile.haDeviceId === plan.valve.device_id || plan.valve.device_keys.includes(String(id).toLowerCase()) || profile.zigbeeTopic === plan.valve.name
+    profileMatchesDevice(id, profile, plan.valve)
   ))?.[1];
   if (valveProfile) {
     valveProfile.wateringCircuit = plan.circuit;
@@ -267,7 +269,7 @@ function updateCircuitProfiles(plan) {
     valveProfile.haWatering = Object.fromEntries(Object.entries(helpers).filter(([key]) => !['thresholds', 'waterAlarmEntities'].includes(key)));
   }
   plan.sensors.forEach((sensor, index) => {
-    const profile = Object.entries(profiles).find(([id, item]) => item.haDeviceId === sensor.device_id || sensor.device_keys.includes(String(id).toLowerCase()))?.[1];
+    const profile = Object.entries(profiles).find(([id, item]) => profileMatchesDevice(id, item, sensor))?.[1];
     if (profile) {
       profile.wateringCircuit = plan.circuit;
       profile.generatedWatering = { packageFile: plan.packageFile };
@@ -619,8 +621,8 @@ async function syncProfiles() {
 async function ingestCachedSensorState() {
   const states = JSON.parse(fs.readFileSync(ZIGBEE2MQTT_STATE_FILE, 'utf8'));
   for (const [deviceId, profile] of Object.entries(profiles)) {
-    const state = states[deviceId] || states[profile.zigbeeTopic];
-    if (!state) continue;
+    const state = cachedStateByIeee(states, deviceId);
+    if (!state || !state.last_seen || !Number.isFinite(typeof state.last_seen === 'number' ? state.last_seen : Date.parse(state.last_seen))) continue;
     const ingest = profile.type === 'watering_valve' ? ingestValve : ingestSensor;
     await ingest(profile, deviceId, Buffer.from(JSON.stringify(state)));
   }
@@ -669,6 +671,13 @@ async function ingestAlarm(profile, deviceId, raw) {
 
 async function main() {
   loadQueue();
+  let routes;
+  try {
+    routes = new ZigbeeIdentityRoutes(JSON.parse(fs.readFileSync(ZIGBEE_ROUTES_FILE, 'utf8')));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    routes = new ZigbeeIdentityRoutes();
+  }
   http.createServer(async (request, response) => {
     try {
       if (request.headers.authorization !== `Bearer ${INGEST_TOKEN}`) {
@@ -749,20 +758,20 @@ async function main() {
     }
   }).listen(PORT);
   const client = mqtt.connect(MQTT_URL, { username: MQTT_USERNAME, password: MQTT_PASSWORD, reconnectPeriod: 5000 });
-  client.on('connect', () => {
-    for (const [deviceId, profile] of Object.entries(profiles)) {
-      client.subscribe(`zigbee2mqtt/${profile.zigbeeTopic || deviceId}`);
-      if (profile.alarmTopic) client.subscribe(profile.alarmTopic);
-    }
-  });
-  client.on('message', (topic, payload) => {
-    const entry = Object.entries(profiles).find(([deviceId, profile]) => topic === `zigbee2mqtt/${profile.zigbeeTopic || deviceId}` || topic === profile.alarmTopic);
-    if (!entry) return;
-    const [deviceId, profile] = entry;
-    const work = topic === profile.alarmTopic
-      ? ingestAlarm(profile, deviceId, payload)
-      : profile.type === 'watering_valve' ? ingestValve(profile, deviceId, payload) : ingestSensor(profile, deviceId, payload);
-    work.catch((error) => console.error(error.message || error));
+  observeProfileTopics(client, {
+    profiles,
+    routes,
+    onInventory(snapshot) {
+      fs.mkdirSync(path.dirname(ZIGBEE_ROUTES_FILE), { recursive: true });
+      fs.writeFileSync(`${ZIGBEE_ROUTES_FILE}.tmp`, `${JSON.stringify(snapshot)}\n`, 'utf8');
+      fs.renameSync(`${ZIGBEE_ROUTES_FILE}.tmp`, ZIGBEE_ROUTES_FILE);
+    },
+    onObservation: (id, profile, payload) => profile.type === 'watering_valve' ? ingestValve(profile, id, payload) : ingestSensor(profile, id, payload),
+    onAlarm: (id, profile, payload) => ingestAlarm(profile, id, payload),
+    onError(error) {
+      console.error(`Soil identity routing: ${error.message || error}`);
+      if (error.code) process.exit(1);
+    },
   });
   client.on('error', (error) => console.error(error.message || error));
   let syncingMetadata = false;

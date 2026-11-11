@@ -20,6 +20,7 @@ The adapter reads HA's device/entity/area/label registries through authenticated
 - An HA entity rename changes `haEntityId` and creates a new dated Z2M-observer-to-HA replay route. The history id and old routes remain intact. Dashboard writes use the current explicit HA entity reference.
 - Ambiguous/multi-endpoint light mappings are not taken over silently. Their HA light observations continue; unsupported per-endpoint values are not guessed.
 - Existing soil profiles periodically refresh names/areas from HA by IEEE, including valves that did not previously have `haDeviceId`.
+- Soil topic routing also follows the live Z2M inventory by IEEE, never the old pot name in a profile. It refreshes on renames and reconnects without changing the history id; watering-circuit membership remains explicit. See [soil identity rules](../soil-controller/README.md#stable-sensor-identity).
 
 ## Failure behavior
 

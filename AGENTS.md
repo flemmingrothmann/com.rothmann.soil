@@ -67,6 +67,7 @@
 - Controller-neutrale Z2M/HA ingest-adaptere skal bruge samme write-ahead-princip: persistér observationen lokalt før Wingman-kaldet og slet først efter `202`; cached controller-state kan kun genskabe seneste state, ikke mellemliggende historik.
 - Zigbee-observationer og HA-metadata er adskilte: generel direkte Z2M-ingest ligger i `home-assistant-ingest-service`, mens IEEE-adresser i soil-controllerens live profiler fortsat ejes af soil-adapteren. Undgå dobbelte observationer gennem HA. HA ejer navne/områder/labels og write actions; persistér metadata til HA-udfald. Se `docs/zigbee-wingman-ingest.md`.
 - Bevar Wingman-historik-ID ved HA-entity-omdøbning; brug den aktuelle eksplicitte `haEntityId` til lysstyring og versionsbundne replay-ruter. Et MQTT-topicnavn er aldrig en autoritativ områdekobling.
+- Brugerkrav 11. november 2026: sensorer skal kunne flyttes mellem potter og omdøbes frit uden identitets-/historikskift. Soil-profiler og historik bindes til IEEE; aktuelle MQTT-topics kommer fra Z2M-inventaret, aldrig fra gamle visuelle navne. Kræv frisk inventory ved reconnect, og lad aldrig genbrug af et pottenavn sammenblande sensorer. Historikken følger sensoren; vandingstilknytning ændres kun eksplicit.
 
 ## Dashboard Data Flow
 - Dashboardet skal som hovedregel læse fra Wingman DB/API, ikke direkte fra Homey.

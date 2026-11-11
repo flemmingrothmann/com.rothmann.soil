@@ -17,3 +17,14 @@ The Vanding dashboard can plan, apply and remove HA watering circuits from one H
 Home Assistant `Område` and device name are the source of truth for migrated device placement and display. Each entry in `config/profiles.json` maps a stable Z2M IEEE address to the matching HA device id, area id and display name for Wingman/dashboard use. Registry data is read through HA WebSocket APIs. Do not derive zones from device names or reuse Homey zone ids for new HA devices.
 
 The bridge also ingests Z2M `linkquality` as a non-authoritative coverage indicator. The dashboard renders it only for Z2M devices as a five-level dot; stable reporting remains the actual coverage criterion.
+
+## Stable Sensor Identity
+
+- Profile keys and Wingman history ids are the physical Zigbee IEEE address. Names, HA registry ids and MQTT friendly names are not interchangeable identities.
+- The adapter resolves current state topics from `zigbee2mqtt/bridge/devices`, keyed by IEEE, and follows inventory updates without restarting. Old `zigbeeTopic` profile values are legacy hints and are no longer used to route observations.
+- A fresh retained inventory is required after each MQTT reconnect, even when `/data/zigbee-device-topics.json` exists. Reused names, ambiguous mappings and command subtopics must not cross-wire sensor history.
+- Cached sensor state is read only by IEEE and keeps its source timestamp. A stale cache is not made fresh by redeploying. Unsupported/missing identities are not guessed from old pot names.
+- HA remains authoritative for visual names/areas, refreshed at most once per minute. Moving or renaming a sensor does not reassign its watering circuit or change thresholds/automations.
+- History follows the **sensor**, not the pot: moving one sensor between pots keeps one series; reusing a pot name for another sensor does not merge their series.
+
+Verify with `node --test tests/soilIdentity.test.js` and an actual MQTT observation reaching Wingman under the same IEEE id. For deployment, copy the complete adapter build context (including `zigbeeIdentity.js`), preserve live `config/` and private `.env`, and recreate only `homey-wingman-soil-controller` on `hubert`.
