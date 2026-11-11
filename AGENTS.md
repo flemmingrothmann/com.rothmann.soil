@@ -64,6 +64,8 @@
 - Homey Wingman har persistent queue i app storage til perioder hvor ingest ikke svarer; den skal beskytte Homey mod nedetid på `hubert` og undgå tab af events så længe Wingman-appen stadig kører.
 - Queue defaults: ca. `600000` events, `300 MiB`, retry/backoff starter ved `15 sek.` og maxer ved `5 min.`.
 - Controller-neutrale Z2M/HA ingest-adaptere skal bruge samme write-ahead-princip: persistér observationen lokalt før Wingman-kaldet og slet først efter `202`; cached controller-state kan kun genskabe seneste state, ikke mellemliggende historik.
+- Zigbee-observationer og HA-metadata er adskilte: generel direkte Z2M-ingest ligger i `home-assistant-ingest-service`, mens IEEE-adresser i soil-controllerens live profiler fortsat ejes af soil-adapteren. Undgå dobbelte observationer gennem HA. HA ejer navne/områder/labels og write actions; persistér metadata til HA-udfald. Se `docs/zigbee-wingman-ingest.md`.
+- Bevar Wingman-historik-ID ved HA-entity-omdøbning; brug den aktuelle eksplicitte `haEntityId` til lysstyring og versionsbundne replay-ruter. Et MQTT-topicnavn er aldrig en autoritativ områdekobling.
 
 ## Dashboard Data Flow
 - Dashboardet skal som hovedregel læse fra Wingman DB/API, ikke direkte fra Homey.

@@ -63,3 +63,4 @@ Every event has a physical-device identity, controller-local device id, capabili
 - New controllers and emitters must conform to this document before they are connected to production Wingman ingest.
 - Main-meter observation authority and the timestamped Homey-to-HA cutover are documented in [energy-meter-ha-migration.md](energy-meter-ha-migration.md). Raw controller provenance stays unchanged; only derived meter accounting joins the authoritative streams.
 - Replay supports Homey capability writes and Home Assistant `light` `onoff` and `dim` writes. A new controller is not a replay target until it has an explicit dispatcher, capability mapping and routing records.
+- Direct Zigbee observations and HA metadata ownership are documented in [Zigbee Wingman ingest](zigbee-wingman-ingest.md). Z2M-observed lights keep HA as their explicit write/replay target; changing observation source does not introduce another automation controller.

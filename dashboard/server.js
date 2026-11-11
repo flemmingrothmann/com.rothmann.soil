@@ -1756,7 +1756,7 @@ async function setLightOnOff(deviceId, value) {
           authorization: `Bearer ${HOME_ASSISTANT_TOKEN}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ entity_id: deviceId }),
+        body: JSON.stringify({ entity_id: getHomeAssistantLightTarget(device) }),
       },
     );
     if (!response.ok)
@@ -1772,6 +1772,13 @@ async function setLightOnOff(deviceId, value) {
     );
   }
   return { ok: true, value };
+}
+
+function getHomeAssistantLightTarget(device) {
+  const entityId = device.haEntityId || device.id;
+  if (!/^light\.[a-z0-9_]+$/.test(entityId || ""))
+    throw new Error("Lampen mangler en entydig Home Assistant-lysreference.");
+  return entityId;
 }
 
 function getDashboardCard(id, title, subtitle, target, totals, statusItems) {
@@ -3992,6 +3999,7 @@ module.exports = {
   compareZoneDevices,
   enrichWateringValveFlows,
   getDanishPeriodRange,
+  getHomeAssistantLightTarget,
   getLatestCapabilityUpdatedAt,
   hasIngestedCapability,
   getSoilMaintenanceStatus,

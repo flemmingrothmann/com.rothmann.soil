@@ -10,12 +10,15 @@ services:
       WINGMAN_URL: http://homey-wingman-ingest-service:8788
       INGEST_TOKEN: ${INGEST_TOKEN:?INGEST_TOKEN must be set}
       HA_ENERGY_ENABLED: ${HA_ENERGY_ENABLED:-false}
+      ZIGBEE_INGEST_ENABLED: ${ZIGBEE_INGEST_ENABLED:-false}
+      SOIL_PROFILES_FILE: /soil-profiles/profiles.json
       HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-http://192.168.100.66:8123}
       HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:-}
       HA_ENERGY_ZONE_ID: ${HA_ENERGY_ZONE_ID:-home}
       HA_ENERGY_ZONE_NAME: ${HA_ENERGY_ZONE_NAME:-Hjem}
     volumes:
       - home-assistant-ingest-data:/data
+      - /opt/soil/soil-controller/config:/soil-profiles:ro
     networks:
       - home-automation
       - wingman

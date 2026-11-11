@@ -38,10 +38,17 @@ function startEnergyObserver({ url, token, onState }) {
   let retryDelay = 15000;
   function connect() {
     const socket = new WebSocket(`${url.replace(/\/$/, "").replace(/^http/, "ws")}/api/websocket`);
+    let closing = false;
+    let disconnected = false;
+    const close = () => {
+      if (closing) return;
+      closing = true;
+      try { socket.close(); } finally { disconnect(); }
+    };
     let lastMessage = Date.now();
     let nextId = 3;
     const heartbeat = setInterval(() => {
-      if (Date.now() - lastMessage > 60000) socket.close();
+      if (Date.now() - lastMessage > 60000) close();
       else if (socket.readyState === WebSocket.OPEN)
         socket.send(JSON.stringify({ id: nextId++, type: "ping" }));
     }, 20000);
@@ -57,7 +64,7 @@ function startEnergyObserver({ url, token, onState }) {
           } }));
         } else if (message.type === "auth_invalid" || (message.type === "result" && !message.success)) {
           console.error(`HA energy subscription failed: ${message.error?.message || message.message || message.type}`);
-          socket.close();
+          close();
         } else if (message.type === "result" && message.id === 1) {
           socket.send(JSON.stringify({ id: 2, type: "get_states" }));
           retryDelay = 15000;
@@ -72,13 +79,17 @@ function startEnergyObserver({ url, token, onState }) {
         console.error(`HA energy observation failed: ${error.message}`);
       }
     });
-    socket.addEventListener("error", () => socket.close());
-    socket.addEventListener("close", () => {
+    socket.addEventListener("error", close);
+    function disconnect() {
+      if (disconnected) return;
+      disconnected = true;
+      closing = true;
       clearInterval(heartbeat);
       console.warn(`HA energy disconnected; retry in ${retryDelay / 1000}s`);
       setTimeout(connect, retryDelay);
       retryDelay = Math.min(retryDelay * 2, 300000);
-    });
+    }
+    socket.addEventListener("close", disconnect);
   }
   connect();
 }

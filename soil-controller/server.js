@@ -51,21 +51,30 @@ async function requestHomeAssistant(pathname, options = {}) {
 
 async function requestHomeAssistantWebSocket(type) {
   const socket = new globalThis.WebSocket(`${HOME_ASSISTANT_URL.replace(/^http/, 'ws')}/api/websocket`);
-  let messageId = 0;
   const nextMessage = () => new Promise((resolve, reject) => {
-    socket.addEventListener('message', (event) => resolve(JSON.parse(event.data)), { once: true });
-    socket.addEventListener('error', () => reject(new Error('Home Assistant WebSocket-forbindelsen fejlede.')), { once: true });
+    const timeout = setTimeout(() => { cleanup(); reject(new Error(`Home Assistant ${type} timed out.`)); }, 15000);
+    const message = (event) => { cleanup(); resolve(JSON.parse(event.data)); };
+    const error = () => { cleanup(); reject(new Error('Home Assistant WebSocket-forbindelsen fejlede.')); };
+    function cleanup() {
+      clearTimeout(timeout);
+      socket.removeEventListener('message', message);
+      socket.removeEventListener('error', error);
+      socket.removeEventListener('close', error);
+    }
+    socket.addEventListener('message', message, { once: true });
+    socket.addEventListener('error', error, { once: true });
+    socket.addEventListener('close', error, { once: true });
   });
-  await nextMessage();
-  socket.send(JSON.stringify({ type: 'auth', access_token: HOME_ASSISTANT_TOKEN }));
-  const auth = await nextMessage();
-  if (auth.type !== 'auth_ok') throw new Error(`Home Assistant WebSocket-login fejlede: ${auth.message || auth.type}`);
-  messageId += 1;
-  socket.send(JSON.stringify({ id: messageId, type }));
-  const result = await nextMessage();
-  socket.close();
-  if (!result.success) throw new Error(`Home Assistant WebSocket ${type} fejlede: ${result.error?.message || 'ukendt fejl'}`);
-  return result.result;
+  try {
+    await nextMessage();
+    socket.send(JSON.stringify({ type: 'auth', access_token: HOME_ASSISTANT_TOKEN }));
+    const auth = await nextMessage();
+    if (auth.type !== 'auth_ok') throw new Error(`Home Assistant WebSocket-login fejlede: ${auth.message || auth.type}`);
+    socket.send(JSON.stringify({ id: 1, type }));
+    const result = await nextMessage();
+    if (!result.success) throw new Error(`Home Assistant WebSocket ${type} fejlede: ${result.error?.message || 'ukendt fejl'}`);
+    return result.result;
+  } finally { socket.close(); }
 }
 
 function slugifyCircuitLabel(label) {
@@ -478,26 +487,29 @@ async function syncNamesFromHomeAssistant() {
     requestHomeAssistantWebSocket('config/area_registry/list'),
   ]);
   const areasById = new Map(areas.map((area) => [area.area_id || area.id, area]));
-  for (const profile of Object.values(profiles)) {
-    if (!profile.haDeviceId) continue;
-    const device = devices.find((item) => item.id === profile.haDeviceId);
+  const before = JSON.stringify(profiles);
+  for (const [ieee, profile] of Object.entries(profiles)) {
+    const matches = devices.filter((item) => getDeviceKeys(item).includes(`zigbee2mqtt_${ieee.toLowerCase()}`));
+    const device = matches.length === 1 ? matches[0] : null;
+    if (!device) continue;
+    profile.haDeviceId = device.id;
     const name = String(device?.name_by_user || device?.name || '').trim();
     if (name) profile.name = name;
     const area = areasById.get(device?.area_id);
-    if (area) {
-      profile.zoneId = area.area_id || area.id;
-      profile.zoneName = area.name;
-    }
+    profile.zoneId = area ? area.area_id || area.id : 'ha_unassigned';
+    profile.zoneName = area?.name || 'Uplaceret';
   }
-  persistProfiles();
+  const changed = before !== JSON.stringify(profiles);
+  if (changed) persistProfiles();
+  return changed;
 }
 
 function loadQueue() {
   try {
     queue = JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf8'));
-    if (!Array.isArray(queue)) queue = [];
+    if (!Array.isArray(queue)) throw new Error('Invalid persistent soil queue');
   } catch (error) {
-    if (error.code !== 'ENOENT') console.error(error.message || error);
+    if (error.code !== 'ENOENT') throw error;
     queue = [];
   }
 }
@@ -527,12 +539,12 @@ async function post(pathname, body) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
   });
-  if (!response.ok) throw new Error(`Wingman returned ${response.status}: ${await response.text()}`);
+  if (response.status !== 202) throw new Error(`Wingman returned ${response.status}: ${await response.text()}`);
 }
 
 function enqueueIngest(events) {
   queue.push({ events });
-  if (queue.length > MAX_QUEUE_EVENTS) queue.splice(0, queue.length - MAX_QUEUE_EVENTS);
+  if (queue.length === MAX_QUEUE_EVENTS) console.warn('Soil queue reached its warning limit; retaining unacknowledged observations.');
   persistQueue();
   flushQueue().catch((error) => console.error(error.message || error));
 }
@@ -657,10 +669,6 @@ async function ingestAlarm(profile, deviceId, raw) {
 
 async function main() {
   loadQueue();
-  await syncNamesFromHomeAssistant().catch((error) => console.error(error.message || error));
-  await syncProfiles().catch((error) => console.error(error.message || error));
-  await ingestCachedSensorState().catch((error) => console.error(error.message || error));
-  await flushQueue().catch((error) => console.error(error.message || error));
   http.createServer(async (request, response) => {
     try {
       if (request.headers.authorization !== `Bearer ${INGEST_TOKEN}`) {
@@ -757,6 +765,21 @@ async function main() {
     work.catch((error) => console.error(error.message || error));
   });
   client.on('error', (error) => console.error(error.message || error));
+  let syncingMetadata = false;
+  async function refreshMetadata() {
+    if (syncingMetadata) return;
+    syncingMetadata = true;
+    try {
+      if (await syncNamesFromHomeAssistant()) await syncProfiles();
+    } catch (error) { console.error(error.message || error); }
+    finally { syncingMetadata = false; }
+  }
+  // HA metadata is optional for observations: cached profiles remain usable during outages.
+  refreshMetadata();
+  setInterval(refreshMetadata, 60000).unref();
+  syncProfiles().catch((error) => console.error(error.message || error));
+  ingestCachedSensorState().catch((error) => console.error(error.message || error));
+  flushQueue().catch((error) => console.error(error.message || error));
 }
 
 if (require.main === module) {
