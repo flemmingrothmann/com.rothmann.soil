@@ -16,6 +16,7 @@
 - Genparringsvejledning for GPD-knapper med fysisk knaplayout ligger i `docs/gpd-button-cheat-sheet.md`.
 - Runtime/deploy-verifikation for dashboard, Wingman ingest og mini-PC services skal ske mod `hubert` (typisk `fro@192.168.100.66`) og ikke mod lokale Docker-containere på udviklingsmaskinen.
 - Netværksudfald mod `hubert` er normalt midlertidige. Ved unattended eller længerevarende arbejde: vent kort og retry forbindelsen, før du betragter det som en blocker.
+- Dashboard-deploy skal bruge hele repoets build-context, inklusive `dashboard/public/`; rebuild aldrig med kun en ny `server.js` og gamle frontend-filer på hubert. Kontrollér både build-context og kørende container med `node tools/verify-dashboard-assets.js`, og verificér den berørte UI-funktion — HTTP 200 alene er ikke nok. Batteripanelet blev skjult ved et server-only deploy 11. november 2026, selv om det lå committet i repoet.
 
 ## Home Assistant
 - Fra HA 2026.8 ejes HTTP-/proxy-/loginindstillinger af UI/WebSocket `http/config`, ikke YAML. Kontrollér altid den aktive konfiguration før en sikkerhedsvurdering; manglende `http:` i YAML er ikke tegn på manglende proxybeskyttelse. Ændr via `http/config/configure`, verificér efter genstart og bekræft med `http/config/promote` inden rollback-fristen. Se `docs/home-assistant-security.md`.
