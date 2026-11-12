@@ -13,42 +13,86 @@ blueprint:
           filter:
             domain: sensor
             device_class: moisture
-    threshold:
+    threshold_helper:
       name: Jordfugtgrænse
-      description: Alarmen aktiveres ved eller under denne værdi.
-      default: 25
+      description: Grænsen ændres i denne tal-helper eller fra dashboardet. 0 slår alarmen fra.
+      default: ""
       selector:
-        number:
-          min: 0
-          max: 90
-          step: 1
-          unit_of_measurement: "%"
-          mode: box
+        entity:
+          filter:
+            domain: input_number
     plant_name:
       name: Plantenavn
+      description: Lad feltet være tomt for at følge sensorens navn i HA.
+      default: ""
       selector:
         text:
+    advanced:
+      name: Avanceret
+      collapsed: true
+      input:
+        threshold:
+          name: Fast grænse uden tal-helper
+          description: Bruges kun, når der ikke er valgt en tal-helper.
+          default: 25
+          selector:
+            number:
+              min: 0
+              max: 90
+              step: 1
+              unit_of_measurement: "%"
+              mode: box
+        water_alarm:
+          name: Alarmstatus
+          default: ""
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+        control_topic:
+          name: Wingman status-topic
+          default: ""
+          selector:
+            text:
+        notification_key:
+          name: Stabil notifikationsnøgle
+          description: Bevar nøglen ved omdøbning, så døgnbegrænsningen bevares.
+          default: ""
+          selector:
+            text:
 variables:
   moisture_sensor: !input moisture_sensor
-  threshold: !input threshold
-  plant_name: !input plant_name
+  fixed_threshold: !input threshold
+  threshold_helper: !input threshold_helper
+  water_alarm: !input water_alarm
+  control_topic: !input control_topic
+  notification_key: !input notification_key
+  threshold: "{{ states(threshold_helper) | float(none) if threshold_helper else fixed_threshold }}"
+  plant_name_override: !input plant_name
+  plant_name: >-
+    {{ plant_name_override | trim or device_attr(moisture_sensor, 'name_by_user')
+       or device_attr(moisture_sensor, 'name') or state_attr(moisture_sensor, 'friendly_name') or moisture_sensor }}
   plant_area: "{{ area_name(moisture_sensor) or '' }}"
   moisture: "{{ states(moisture_sensor) | float(none) }}"
-  notification_id: "manual_soil_alarm_{{ moisture_sensor | replace('.', '_') }}"
-  upper_threshold: "{{ [95, threshold + 6] | min }}"
+  notification_id: "manual_soil_alarm_{{ notification_key or moisture_sensor | replace('.', '_') }}"
+  upper_threshold: "{{ [95, threshold + 6] | min if threshold is number else none }}"
 triggers:
   - trigger: homeassistant
     event: start
   - trigger: state
     entity_id: !input moisture_sensor
+  - trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input threshold_helper
 conditions:
   - condition: template
-    value_template: "{{ moisture is number }}"
+    value_template: "{{ moisture is number and threshold is number and 0 <= threshold <= 90 }}"
 actions:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ moisture <= threshold }}"
+            value_template: "{{ threshold > 0 and moisture <= threshold }}"
         sequence:
           - action: persistent_notification.create
             data:
@@ -57,12 +101,36 @@ actions:
                 {{ plant_name | trim }}{% if plant_area %} i '{{ plant_area }}'{% endif %} skal vandes
               message: >-
                 Jordfugt er {{ moisture | round(0) }} %. Grænsen er {{ threshold }} %.
+          - if:
+              - condition: template
+                value_template: "{{ water_alarm and is_state(water_alarm, 'off') }}"
+            then:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: "{{ water_alarm }}"
       - conditions:
           - condition: template
-            value_template: "{{ moisture >= upper_threshold }}"
+            value_template: "{{ threshold == 0 or moisture >= upper_threshold }}"
         sequence:
           - action: persistent_notification.dismiss
             data:
               notification_id: "{{ notification_id }}"
+          - if:
+              - condition: template
+                value_template: "{{ water_alarm and is_state(water_alarm, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ water_alarm }}"
+  - if:
+      - condition: template
+        value_template: "{{ control_topic and water_alarm and states(water_alarm) in ['on', 'off'] }}"
+    then:
+      - action: mqtt.publish
+        data:
+          topic: "{{ control_topic }}"
+          retain: true
+          payload: >-
+            {{ {'threshold': threshold, 'alarm': is_state(water_alarm, 'on'), 'time': now().isoformat()} | tojson }}
 mode: queued
 max: 10

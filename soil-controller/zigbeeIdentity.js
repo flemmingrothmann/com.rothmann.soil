@@ -61,7 +61,7 @@ function cachedStateByIeee(states, id) {
   return matches.length === 1 ? matches[0][1] : null;
 }
 
-function observeProfileTopics(client, { profiles, routes = new ZigbeeIdentityRoutes(), onInventory, onObservation, onAlarm, onError }) {
+function observeProfileTopics(client, { profiles, routes = new ZigbeeIdentityRoutes(), onInventory, onDevices = () => {}, onObservation, onAlarm, onControl, onError }) {
   let ready = false;
   let stateSubscribed = false;
   client.on('connect', () => {
@@ -73,7 +73,8 @@ function observeProfileTopics(client, { profiles, routes = new ZigbeeIdentityRou
     try {
       if (topic === 'zigbee2mqtt/bridge/devices') {
         ready = false;
-        const next = new ZigbeeIdentityRoutes(JSON.parse(payload.toString()));
+        const devices = JSON.parse(payload.toString());
+        const next = new ZigbeeIdentityRoutes(devices);
         if (JSON.stringify(next.snapshot()) !== JSON.stringify(routes.snapshot())) onInventory(next.snapshot());
         routes = next;
         ready = true;
@@ -81,15 +82,17 @@ function observeProfileTopics(client, { profiles, routes = new ZigbeeIdentityRou
           stateSubscribed = true;
           client.subscribe('zigbee2mqtt/#', { qos: 1 });
         }
+        onDevices(devices);
         return;
       }
       if (!payload.length) return; // MQTT clears retained topics during a rename; this is not a reading/alarm.
       const alarms = Object.entries(profiles).filter(([, profile]) => topic === profile.alarmTopic);
-      if (alarms.length > 1) throw new Error(`Ambiguous soil alarm topic: ${topic}`);
-      const entry = alarms[0] || (ready ? routes.resolve(topic, profiles) : null);
+      const controls = Object.entries(profiles).filter(([, profile]) => topic === profile.controlTopic);
+      if (alarms.length + controls.length > 1) throw new Error(`Ambiguous soil alarm topic: ${topic}`);
+      const entry = controls[0] || alarms[0] || (ready ? routes.resolve(topic, profiles) : null);
       if (!entry) return;
       const [id, profile] = entry;
-      const work = alarms.length ? onAlarm(id, profile, payload) : onObservation(id, profile, payload);
+      const work = controls.length ? onControl(id, profile, payload) : alarms.length ? onAlarm(id, profile, payload) : onObservation(id, profile, payload);
       Promise.resolve(work).catch(onError);
     } catch (error) { onError(error); }
   });

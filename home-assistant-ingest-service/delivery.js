@@ -1,6 +1,6 @@
 "use strict";
 
-function createDelivery({ url, token, fetchImpl = fetch }) {
+function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () => true }) {
   const devices = new Map();
   const routes = new Set();
   async function request(pathname, method, body, accepted) {
@@ -14,7 +14,7 @@ function createDelivery({ url, token, fetchImpl = fetch }) {
   return async function deliver(envelope) {
     const { device, events } = envelope;
     const signature = JSON.stringify(device);
-    if (devices.get(device.id) !== signature) {
+    if (shouldSyncDevice(device) && devices.get(device.id) !== signature) {
       await request("/api/sync/external-devices", "POST", { devices: [device] }, true);
       devices.set(device.id, signature);
     }

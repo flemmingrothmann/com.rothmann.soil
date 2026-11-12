@@ -1085,7 +1085,9 @@ function getLatestCapabilityUpdatedAt(device) {
 }
 
 function getSoilLastReportedAtMs(device, fallbackUpdatedAt, history) {
-  const latestCapabilityUpdatedAt = getLatestCapabilityUpdatedAt(device);
+  const physicalState = Object.fromEntries(Object.entries(device?.capabilitiesObj || {})
+    .filter(([capability]) => !['soil_warning_threshold', 'alarm_water'].includes(capability)));
+  const latestCapabilityUpdatedAt = getLatestCapabilityUpdatedAt({ ...device, capabilitiesObj: physicalState });
   if (Number.isFinite(latestCapabilityUpdatedAt)) {
     return latestCapabilityUpdatedAt;
   }

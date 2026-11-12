@@ -283,6 +283,14 @@ test("failed delivery retains durable queue, only 202 acknowledges ingestion", a
   assert.equal(calls.filter((call) => call.url.endsWith("/api/sync/external-devices")).length, 1);
 });
 
+test("a queued generic observation cannot overwrite metadata after the soil adapter takes ownership", async () => {
+  const calls = [];
+  const deliver = createDelivery({ url: "http://wingman", token: "test", shouldSyncDevice: () => false,
+    fetchImpl: async (url) => { calls.push(url); return { status: 202, ok: true }; } });
+  await deliver({ device: { id: ieee, sourceSystem: "zigbee2mqtt", class: "sensor" }, events: [{ capability: "measure_soil_moisture", value: 30 }] });
+  assert.deepEqual(calls, ["http://wingman/api/ingest"]);
+});
+
 test("observation routes are explicit Z2M-to-HA routes, never new hardware writers", async (t) => {
   const { observer } = setup(t);
   const model = observer.models[ieee];

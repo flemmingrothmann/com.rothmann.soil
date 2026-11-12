@@ -2,6 +2,10 @@
 
 - Blueprintet `wingman/manual-soil-moisture-alarm.yaml` bruger sensorens HA-område
   i titlen, fx `Efeu i 'Flemmings Værelse' skal vandes`. Uden område vises kun planten.
+- Nye Zigbee-jordfugtsensorer klargøres automatisk af soil-adapteren, når Z2M og HA har opdaget dem.
+  De får en tal-helper til alarmgrænsen, en alarmstatus og en vedvarende push-cooldown.
+  Grænsen starter på 25 % og kan ændres i dashboardet eller HA's helper-UI; 0 slår alarmen fra.
+  Eksisterende indstillinger og manuelle blueprint-instanser genbruges, ikke nulstilles eller duplikeres.
 - Alarmen oprettes ved/under grænsen og fjernes ved grænsen + 6 procentpoint
   (maks. 95 %). Den eksisterende hysterese er uændret.
 - UI-automationen **Manuel vanding push til mobilapps** sender højst én
@@ -9,13 +13,13 @@
   Nye og opdaterede alarmer kontrolleres; første fugtopdatering efter 24 timer
   kan sende en ny påmindelse, hvis planten fortsat er tør. HA-notifikationen opdateres løbende.
 - Seneste push gemmes pr. sensor i `input_datetime.<notification_id>_last_push`.
-  Helperne ligger i `home-assistant/packages/manual_watering_notifications.yaml`,
-  uden `initial`, så tidspunktet bevares ved reload/genstart. Sletning/genoprettelse
-  af en alarm nulstiller ikke cooldown. Begge aktuelle sensorer har hver sin helper.
+  De to oprindelige helpers ligger i `home-assistant/packages/manual_watering_notifications.yaml`
+  uden `initial`, så tidspunktet bevares ved reload/genstart. Nye cooldown-helpers
+  oprettes i HA's UI-storage. Sletning/genoprettelse af en alarm nulstiller ikke cooldown.
 - Cooldown kontrolleres inde i den serielle kø, og tidspunktet reserveres **før**
   mobilkaldet. Samtidige events kan derfor ikke give dobbelte push. Et fejlet
   mobilkald bruger også vinduet; der foretages ikke automatisk genforsøg samme døgn.
-- Ved en ny manuel sensor oprettes dens dato/tid-helper med samme ID-konvention;
+- Ved en ny manuel sensor oprettes dens dato/tid-helper med samme ID-konvention (automatisk for Zigbee);
   sæt første værdi til en dato mindst 24 timer tilbage, hvis første push skal sendes straks.
   Manglende/utilgængelig helper stopper push frem for at sende ubegrænset.
 - Aktuelt er `notify.mobile_app_flemmings_s23` den eneste registrerede mobilapp.
@@ -39,6 +43,14 @@
   fremtidige tidspunkter i automatiske tests. Nulstil ikke live-cooldown for at teste.
 - Ved HA-restore skal `home-assistant_home-assistant-config` inkludere `.storage`
   med gendannelsesdata for dato/tid-helperne. Se den fælles backup-/recovery-runbook.
+
+## Automatisk klargøring verificeret 2026-11-12
+
+- Chilli og Efeu blev automatisk klargjort på `hubert`; begge eksisterende automation-ID'er blev genbrugt.
+- Dashboardets grænseændring 25 → 24 % nåede HA, overlevede adaptergenstart og blev gendannet til 25 %.
+- En isoleret HA-test bekræftede alarm, hysterese, omgående reevaluering ved grænseændring og deaktivering med 0; ingen mobilpush eller fysiske enhedskald.
+- De eksisterende push-tidspunkter og alle 23 øvrige automatikker blev bevaret. Indlæst push-trace afviste en gentagelse i cooldown-betingelsen uden fejl.
+- 100 Node-tests og 17 blueprint-/cooldown-tests bestod. Kørende adapter-/blueprintfiler og dashboardets fulde build-context blev sammenlignet med repoet.
 
 ## Verificeret 2026-11-09
 

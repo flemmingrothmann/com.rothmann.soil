@@ -8,6 +8,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "mqtt": "^5.14.1"
+    "mqtt": "^5.14.1",
+    "yaml": "^2.9.1"
   }
 }

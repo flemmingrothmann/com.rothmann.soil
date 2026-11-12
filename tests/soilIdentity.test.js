@@ -149,3 +149,19 @@ test('new soil profiles use existing wildcard subscription without reconnecting'
   assert.equal(s.observations[0].id, other);
   assert.deepEqual(s.alarms, [other]);
 });
+
+test('HA software control topics remain separate from physical observations and watering alarm topics', () => {
+  const client = new EventEmitter();
+  client.subscribe = () => {};
+  const physical = [];
+  const control = [];
+  const errors = [];
+  const configured = { [citron]: { controlTopic: `homeassistant/soil/${citron}/control` } };
+  observeProfileTopics(client, { profiles: configured, onInventory: () => {}, onObservation: (id) => physical.push(id),
+    onAlarm: () => assert.fail('not a legacy alarm'), onControl: (id, profile, payload) => control.push([id, JSON.parse(payload)]), onError: (error) => errors.push(error) });
+  client.emit('message', configured[citron].controlTopic, Buffer.from('{"threshold":25,"alarm":false}'));
+  assert.equal(control.length, 1);
+  assert.equal(control[0][0], citron);
+  assert.equal(physical.length, 0);
+  assert.deepEqual(errors, []);
+});

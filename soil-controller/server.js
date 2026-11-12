@@ -4,8 +4,10 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const mqtt = require('mqtt');
+const YAML = require('yaml');
 const { classifyCircuitMode, generatedHelperEntities } = require('./wateringCircuitMode');
 const { ZigbeeIdentityRoutes, cachedStateByIeee, profileMatchesDevice, observeProfileTopics } = require('./zigbeeIdentity');
+const { SoilProvisioner, softwareControlEvents } = require('./soilProvisioning');
 
 const MQTT_URL = process.env.MQTT_URL || 'mqtt://mosquitto:1883';
 const MQTT_USERNAME = process.env.MQTT_USERNAME || '';
@@ -35,6 +37,7 @@ let queue = [];
 let flushing = false;
 let retryTimer = null;
 let retryDelayMs = MIN_RETRY_DELAY_MS;
+let syncedProfilesSignature = '';
 
 async function requestHomeAssistant(pathname, options = {}) {
   const response = await fetch(`${HOME_ASSISTANT_URL}${pathname}`, {
@@ -51,7 +54,7 @@ async function requestHomeAssistant(pathname, options = {}) {
   return body ? JSON.parse(body) : null;
 }
 
-async function requestHomeAssistantWebSocket(type) {
+async function requestHomeAssistantWebSocket(type, fields = {}) {
   const socket = new globalThis.WebSocket(`${HOME_ASSISTANT_URL.replace(/^http/, 'ws')}/api/websocket`);
   const nextMessage = () => new Promise((resolve, reject) => {
     const timeout = setTimeout(() => { cleanup(); reject(new Error(`Home Assistant ${type} timed out.`)); }, 15000);
@@ -72,7 +75,7 @@ async function requestHomeAssistantWebSocket(type) {
     socket.send(JSON.stringify({ type: 'auth', access_token: HOME_ASSISTANT_TOKEN }));
     const auth = await nextMessage();
     if (auth.type !== 'auth_ok') throw new Error(`Home Assistant WebSocket-login fejlede: ${auth.message || auth.type}`);
-    socket.send(JSON.stringify({ id: 1, type }));
+    socket.send(JSON.stringify({ id: 1, type, ...fields }));
     const result = await nextMessage();
     if (!result.success) throw new Error(`Home Assistant WebSocket ${type} fejlede: ${result.error?.message || 'ukendt fejl'}`);
     return result.result;
@@ -414,6 +417,12 @@ async function readProfileThreshold(profile) {
 async function refreshProfileThreshold(profile, deviceId, timestamp = new Date().toISOString()) {
   const threshold = await readProfileThreshold(profile);
   profile.threshold = threshold;
+  if (profile.autoManual) {
+    const alarm = await requestHomeAssistant(`/api/states/${encodeURIComponent(profile.haAlarmEntity)}`);
+    if (!['on', 'off'].includes(alarm?.state)) throw new Error(`${profile.name}: HA-alarmstatus er utilgængelig.`);
+    await ingestSoftwareControl(profile, deviceId, { threshold, alarm: alarm.state === 'on', time: timestamp });
+    return threshold;
+  }
   enqueueIngest([toEvent(profile, deviceId, 'soil_warning_threshold', threshold, timestamp, `${deviceId}:${timestamp}:threshold`, 'home_assistant')]);
   return threshold;
 }
@@ -491,6 +500,7 @@ async function syncNamesFromHomeAssistant() {
   const areasById = new Map(areas.map((area) => [area.area_id || area.id, area]));
   const before = JSON.stringify(profiles);
   for (const [ieee, profile] of Object.entries(profiles)) {
+    if (profile.autoManual) continue; // Provisioning also respects a moisture entity's area override.
     const matches = devices.filter((item) => getDeviceKeys(item).includes(`zigbee2mqtt_${ieee.toLowerCase()}`));
     const device = matches.length === 1 ? matches[0] : null;
     if (!device) continue;
@@ -601,21 +611,24 @@ async function syncProfiles() {
     name: profile.name,
     zoneId: profile.zoneId,
     zoneName: profile.zoneName,
-    driverId: profile.type === 'watering_valve' ? 'zigbee2mqtt:SONOFF:SWV' : 'zigbee2mqtt:Arteco:ZS-304Z',
+    driverId: profile.driverId || (profile.type === 'watering_valve' ? 'zigbee2mqtt:SONOFF:SWV' : 'zigbee2mqtt:Arteco:ZS-304Z'),
     class: profile.type === 'watering_valve' ? 'valve' : 'sensor',
     available: true,
-    capabilities: profile.type === 'watering_valve' ? [
+    capabilities: profile.capabilities || (profile.type === 'watering_valve' ? [
       'onoff', 'measure_water', 'meter_water', 'measure_battery', 'linkquality',
     ] : [
       'measure_soil_moisture', 'soil_warning_threshold', 'measure_temperature',
       'measure_humidity', 'measure_luminance', 'measure_battery', 'linkquality', 'alarm_water',
-    ],
+    ]),
     settings: profile.type === 'watering_valve'
       ? { wateringCircuit: profile.wateringCircuit }
       : { soil_warning: profile.threshold ?? null, soil_sampling: profile.samplingSeconds },
     sourceSystem: 'zigbee2mqtt',
   }));
+  const signature = JSON.stringify(devices);
+  if (signature === syncedProfilesSignature) return;
   await post('/api/sync/external-devices', { devices });
+  syncedProfilesSignature = signature;
 }
 
 async function ingestCachedSensorState() {
@@ -638,12 +651,25 @@ async function ingestSensor(profile, deviceId, raw) {
     ['linkquality', 'linkquality'],
   ];
   const events = mappings
-    .filter(([source]) => Number.isFinite(Number(payload[source])))
+    .filter(([source]) => typeof payload[source] === 'number' && Number.isFinite(payload[source]))
     .map(([source, capability]) => toEvent(profile, deviceId, capability, Number(payload[source]), timestamp, `${sourceEventId}:${source}`));
-  if (Number.isInteger(profile.threshold)) {
+  if (!profile.autoManual && Number.isInteger(profile.threshold)) {
     events.push(toEvent(profile, deviceId, 'soil_warning_threshold', profile.threshold, timestamp, `${sourceEventId}:threshold`, 'home_assistant'));
   }
-  if (events.length > 1) enqueueIngest(events);
+  if (events.length > 0) enqueueIngest(events);
+}
+
+async function ingestSoftwareControl(profile, deviceId, payload) {
+  if (!profile.autoManual) throw new Error(`${deviceId}: automatisk softwarealarm er ikke konfigureret.`);
+  if (profile.controlUpdatedAt && Date.parse(payload.time) < Date.parse(profile.controlUpdatedAt)) return;
+  const { events, state } = softwareControlEvents(profile, deviceId, payload);
+  if (!events.length) return;
+  enqueueIngest(events);
+  profile.threshold = state.threshold;
+  profile.controlState = state;
+  profile.controlUpdatedAt = payload.time;
+  persistProfiles();
+  await syncProfiles();
 }
 
 async function ingestValve(profile, deviceId, raw) {
@@ -758,9 +784,14 @@ async function main() {
     }
   }).listen(PORT);
   const client = mqtt.connect(MQTT_URL, { username: MQTT_USERNAME, password: MQTT_PASSWORD, reconnectPeriod: 5000 });
+  let latestDevices = [];
+  const provisioner = new SoilProvisioner({ profiles, ws: requestHomeAssistantWebSocket, request: requestHomeAssistant,
+    readAutomations: () => YAML.parse(fs.readFileSync(HOME_ASSISTANT_AUTOMATIONS_FILE, 'utf8')) || [],
+    persist: persistProfiles, onControl: (id, profile, payload) => ingestSoftwareControl(profile, id, payload), onChanged: syncProfiles });
   observeProfileTopics(client, {
     profiles,
     routes,
+    onDevices(devices) { latestDevices = devices; refreshMetadata(); },
     onInventory(snapshot) {
       fs.mkdirSync(path.dirname(ZIGBEE_ROUTES_FILE), { recursive: true });
       fs.writeFileSync(`${ZIGBEE_ROUTES_FILE}.tmp`, `${JSON.stringify(snapshot)}\n`, 'utf8');
@@ -768,6 +799,7 @@ async function main() {
     },
     onObservation: (id, profile, payload) => profile.type === 'watering_valve' ? ingestValve(profile, id, payload) : ingestSensor(profile, id, payload),
     onAlarm: (id, profile, payload) => ingestAlarm(profile, id, payload),
+    onControl: (id, profile, payload) => ingestSoftwareControl(profile, id, JSON.parse(payload.toString())),
     onError(error) {
       console.error(`Soil identity routing: ${error.message || error}`);
       if (error.code) process.exit(1);
@@ -775,13 +807,19 @@ async function main() {
   });
   client.on('error', (error) => console.error(error.message || error));
   let syncingMetadata = false;
+  let refreshRequested = false;
   async function refreshMetadata() {
-    if (syncingMetadata) return;
+    if (syncingMetadata) { refreshRequested = true; return; }
     syncingMetadata = true;
     try {
       if (await syncNamesFromHomeAssistant()) await syncProfiles();
+      await provisioner.reconcile(latestDevices);
+      await syncProfiles();
     } catch (error) { console.error(error.message || error); }
-    finally { syncingMetadata = false; }
+    finally {
+      syncingMetadata = false;
+      if (refreshRequested) { refreshRequested = false; setImmediate(refreshMetadata); }
+    }
   }
   // HA metadata is optional for observations: cached profiles remain usable during outages.
   refreshMetadata();

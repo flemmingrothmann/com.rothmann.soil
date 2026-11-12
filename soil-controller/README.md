@@ -1,6 +1,6 @@
 # Soil Controller
 
-This service is an ingest adapter only. Home Assistant owns soil threshold, hysteresis and the canonical watering alarm for migrated sensors.
+This service owns soil ingest and automatic setup of manual soil alarms. Home Assistant owns threshold evaluation, hysteresis, notifications and the canonical watering alarm. The adapter does not operate valves for automatic onboarding.
 
 It uses a persistent write-ahead queue in its Docker volume. A Z2M observation is written to disk before Wingman ingest is attempted and is removed only after Wingman returns `202`. Retry starts at 15 seconds and backs off to five minutes. Z2M's cached `state.json` bootstraps the latest state after a bridge restart; historical events emitted while both Z2M and the bridge are down cannot be reconstructed.
 
@@ -28,3 +28,18 @@ The bridge also ingests Z2M `linkquality` as a non-authoritative coverage indica
 - History follows the **sensor**, not the pot: moving one sensor between pots keeps one series; reusing a pot name for another sensor does not merge their series.
 
 Verify with `node --test tests/soilIdentity.test.js` and an actual MQTT observation reaching Wingman under the same IEEE id. For deployment, copy the complete adapter build context (including `zigbeeIdentity.js`), preserve live `config/` and private `.env`, and recreate only `homey-wingman-soil-controller` on `hubert`.
+
+## Automatic Manual Alarms
+
+New Zigbee devices exposing `soil_moisture` are reconciled against HA's registry by IEEE, without a model whitelist or custom Zigbee converter. Once HA discovery is ready, the adapter creates UI-managed threshold/alarm/cooldown helpers and one editable blueprint instance. This runs on inventory updates and retries approximately once per minute.
+
+- Default threshold: **25 %**; **0 disables**. Existing thresholds (including zero), helper values, notification cooldowns and disabled automation states are never reset to defaults.
+- Alarm on at/below the threshold; off at threshold + 6 percentage points, capped at 95 %. HA remains the only alarm evaluator.
+- Existing `manual-soil-moisture-alarm` instances are extended, not duplicated. Existing notification ids/cooldowns are retained. Future instances use a stable IEEE-based key.
+- Helpers are created through HA WebSocket CRUD, not YAML packages. Numeric values are set once on creation; helper ids, history ids and notification keys survive visual renames.
+- Explicit soil profiles/watering-alarm owners and `wingman-ignore` devices are excluded from onboarding. No watering circuit, valve command or HA mobile-app list is inferred or changed.
+- HA publishes software control state to the profile's `homeassistant/soil/.../control` topic. Only changes are queued, with `source_system=home_assistant`; raw physical readings retain Z2M provenance.
+- The completed profile is persisted before publishing software capabilities. The generic ingest adapter observes the shared profile ownership file and must not overwrite domain metadata when draining old queued observations.
+- A deleted/unavailable existing helper is reported, not replaced with a fresh default. Repair its binding in the HA automation UI. User-created automation/helper settings remain authoritative.
+
+Tests: `node --test tests/soilProvisioning.test.js` plus `home-assistant/tests/test_software_soil_alarm.py` and the notification cooldown tests. HA blueprint changes must be deployed before starting a new adapter version that uses the additional inputs. Preserve all unrelated live automations and private configuration.

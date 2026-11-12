@@ -2,7 +2,7 @@
 
 const mqtt = require("mqtt");
 const { ENERGY_ENTITIES, energyObservation, startEnergyObserver } = require("./energy");
-const { PersistentQueue, writeJson } = require("./storage");
+const { PersistentQueue, readJson, writeJson } = require("./storage");
 const { ZigbeeObserver } = require("./zigbee-observer");
 const { createDelivery, drainQueue } = require("./delivery");
 
@@ -22,7 +22,10 @@ const queue = new PersistentQueue(QUEUE_FILE);
 let flushing = false;
 let retryDelayMs = MIN_RETRY_DELAY_MS;
 let retryTimer = null;
-const deliver = createDelivery({ url: WINGMAN_URL, token: INGEST_TOKEN });
+const deliver = createDelivery({ url: WINGMAN_URL, token: INGEST_TOKEN,
+  shouldSyncDevice: (device) => !(device.sourceSystem === "zigbee2mqtt" && process.env.SOIL_PROFILES_FILE
+    && readJson(process.env.SOIL_PROFILES_FILE, {})[device.id]),
+});
 
 function scheduleRetry() {
   if (retryTimer) return;
