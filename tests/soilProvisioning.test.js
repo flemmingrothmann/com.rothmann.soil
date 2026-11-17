@@ -4,16 +4,29 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { candidates, softwareControlEvents, SoilProvisioner } = require('../soil-controller/soilProvisioning');
 const { canSetSoilAlarmThreshold } = require('../dashboard/server');
+
 const ieee = '0xffffb40e0605b225';
 const sensorId = `sensor.${ieee}_soil_moisture`;
-const inventory = [{ ieee_address: ieee, friendly_name: 'MQTT name', definition: { vendor: 'Third Reality', model: '3RSM0147Z', exposes: [
-  { property: 'soil_moisture', access: 1 }, { property: 'temperature', access: 1 }, { property: 'battery', access: 1 },
-] } }];
+const inventory = [{
+  ieee_address: ieee,
+  friendly_name: 'MQTT name',
+  definition: {
+    vendor: 'Third Reality',
+    model: '3RSM0147Z',
+    exposes: [
+      { property: 'soil_moisture', access: 1 }, { property: 'temperature', access: 1 }, { property: 'battery', access: 1 },
+    ],
+  },
+}];
 
 function fixture({ legacy, disabled = false, existingCooldown = false } = {}) {
   const profiles = {};
-  const devices = [{ id: 'ha-device', name: 'Chilli', area_id: 'drivhus', identifiers: [['mqtt', `zigbee2mqtt_${ieee}`]] }];
-  const entities = [{ entity_id: sensorId, device_id: 'ha-device', platform: 'mqtt', unique_id: `${ieee}_soil_moisture_zigbee2mqtt` }];
+  const devices = [{
+    id: 'ha-device', name: 'Chilli', area_id: 'drivhus', identifiers: [['mqtt', `zigbee2mqtt_${ieee}`]],
+  }];
+  const entities = [{
+    entity_id: sensorId, device_id: 'ha-device', platform: 'mqtt', unique_id: `${ieee}_soil_moisture_zigbee2mqtt`,
+  }];
   const states = new Map([[sensorId, { entity_id: sensorId, state: '36.4' }]]);
   const areas = [{ area_id: 'drivhus', name: 'Drivhus inde' }];
   const automations = legacy ? [structuredClone(legacy)] : [];
@@ -25,25 +38,41 @@ function fixture({ legacy, disabled = false, existingCooldown = false } = {}) {
   const errors = [];
   const events = [];
   const definitions = { input_number: [], input_boolean: [], input_datetime: [] };
+  const categories = { automation: [], helpers: [] };
   const ws = async (type, fields = {}) => {
     calls.push({ type, fields });
     if (type === 'config/device_registry/list') return structuredClone(devices);
     if (type === 'config/entity_registry/list') return structuredClone(entities);
     if (type === 'config/area_registry/list') return structuredClone(areas);
+    if (type === 'config/entity_registry/get') return structuredClone(entities.find((entry) => entry.entity_id === fields.entity_id));
+    if (type === 'config/entity_registry/update') {
+      const entity = entities.find((entry) => entry.entity_id === fields.entity_id);
+      if (Object.hasOwn(fields, 'name')) entity.name = fields.name;
+      entity.categories = { ...entity.categories, ...fields.categories }; return structuredClone(entity);
+    }
+    if (type === 'config/category_registry/list') return structuredClone(categories[fields.scope]);
+    if (type === 'config/category_registry/create') {
+      const entry = { name: fields.name, category_id: `${fields.scope}_${categories[fields.scope].length}` };
+      categories[fields.scope].push(entry); return structuredClone(entry);
+    }
     if (type === 'persistent_notification/get') return [];
     const [domain, action] = type.split('/');
     if (action === 'list') return definitions[domain];
     if (action === 'create') {
       const id = fields.name;
       definitions[domain].push({ id });
-      const entity_id = `${domain}.${id}`;
-      entities.push({ entity_id, platform: domain, unique_id: id });
-      states.set(entity_id, { entity_id, state: domain === 'input_boolean' ? 'off' : '0' });
+      const entityId = `${domain}.${id}`;
+      entities.push({
+        entity_id: entityId, platform: domain, unique_id: id, original_name: fields.name,
+      });
+      states.set(entityId, { entity_id: entityId, state: domain === 'input_boolean' ? 'off' : '0' });
       return { id };
     }
     if (action === 'update') {
       if (domain === 'input_number') assert.ok(Number.isFinite(fields.min) && Number.isFinite(fields.max));
       if (domain === 'input_datetime') assert.ok(fields.has_date || fields.has_time);
+      const entity = entities.find((entry) => entry.unique_id === fields[`${domain}_id`]);
+      if (entity && fields.name) entity.original_name = fields.name;
       return fields;
     }
     throw new Error(`Unexpected WS ${type}`);
@@ -57,6 +86,12 @@ function fixture({ legacy, disabled = false, existingCooldown = false } = {}) {
       const index = automations.findIndex((item) => item.id === config.id);
       if (index < 0) automations.push(config); else automations[index] = config;
       if (!legacy) states.set('automation.new', { entity_id: 'automation.new', state: 'on', attributes: { id: config.id } });
+      const entityId = legacy ? 'automation.original' : 'automation.new';
+      if (!entities.some((entry) => entry.entity_id === entityId)) {
+        entities.push({
+          entity_id: entityId, platform: 'automation', unique_id: config.id, original_name: config.alias, categories: {},
+        });
+      }
       return { result: 'ok' };
     }
     if (path.startsWith('/api/services/')) {
@@ -75,14 +110,24 @@ function fixture({ legacy, disabled = false, existingCooldown = false } = {}) {
     }
     throw new Error(`Unexpected REST ${path}`);
   };
-  const provisioner = new SoilProvisioner({ profiles, ws, request, readAutomations: () => structuredClone(automations), persist: () => {}, onChanged: async () => {},
+  const provisioner = new SoilProvisioner({
+    profiles,
+    ws,
+    request,
+    readAutomations: () => structuredClone(automations),
+    persist: () => {},
+    onChanged: async () => {},
     onControl: async (id, profile, payload) => {
       const result = softwareControlEvents(profile, id, payload);
       events.push(...result.events);
       profile.controlState = result.state;
       profile.threshold = result.state.threshold;
-    }, log: (message) => errors.push(message) });
-  return { profiles, devices, entities, states, areas, automations, calls, errors, events, definitions, provisioner, cooldown };
+    },
+    log: (message) => errors.push(message),
+  });
+  return {
+    profiles, devices, entities, states, areas, automations, calls, errors, events, definitions, provisioner, cooldown,
+  };
 }
 
 test('future soil sensors are discovered by capability and IEEE without model-specific alarm support', () => {
@@ -199,7 +244,9 @@ test('recovering a missing local profile reuses HA helpers and their user values
 });
 
 test('software control observations are validated and emit only changed fields with HA provenance', () => {
-  const profile = { name: 'Chilli', zoneId: 'greenhouse', driverId: 'zigbee2mqtt:Third Reality:3RSM0147Z', controlState: { threshold: 25, alarm: false } };
+  const profile = {
+    name: 'Chilli', zoneId: 'greenhouse', driverId: 'zigbee2mqtt:Third Reality:3RSM0147Z', controlState: { threshold: 25, alarm: false },
+  };
   assert.equal(softwareControlEvents(profile, ieee, { threshold: 25, alarm: false, time: '2026-11-12T12:00:00Z' }).events.length, 0);
   const changed = softwareControlEvents(profile, ieee, { threshold: 35, alarm: true, time: '2026-11-12T12:00:00Z' });
   assert.equal(changed.events.length, 2);
@@ -209,10 +256,120 @@ test('software control observations are validated and emit only changed fields w
 
 test('changing an HA software threshold cannot make a physically offline soil sensor appear live', () => {
   const now = Date.parse('2026-11-12T12:00:00Z');
-  const device = { available: true, capabilities: ['measure_soil_moisture', 'soil_warning_threshold', 'alarm_water'], settings: { soil_warning: 25 }, capabilitiesObj: {
-    measure_soil_moisture: { value: 30, lastUpdated: '2026-11-11T12:00:00Z' },
-    soil_warning_threshold: { value: 25, lastUpdated: '2026-11-12T12:00:00Z' },
-    alarm_water: { value: false, lastUpdated: '2026-11-12T12:00:00Z' },
-  } };
+  const device = {
+    available: true,
+    capabilities: ['measure_soil_moisture', 'soil_warning_threshold', 'alarm_water'],
+    settings: { soil_warning: 25 },
+    capabilitiesObj: {
+      measure_soil_moisture: { value: 30, lastUpdated: '2026-11-11T12:00:00Z' },
+      soil_warning_threshold: { value: 25, lastUpdated: '2026-11-12T12:00:00Z' },
+      alarm_water: { value: false, lastUpdated: '2026-11-12T12:00:00Z' },
+    },
+  };
   assert.equal(canSetSoilAlarmThreshold(device, now), false);
+});
+
+test('a deliberately deleted manual automation is not recreated by reconciliation', async () => {
+  const f = fixture(); await f.provisioner.reconcile(inventory);
+  f.automations.splice(0); f.states.delete('automation.new');
+  const writes = f.calls.filter((c) => c.path?.startsWith('/api/config/automation/config/')).length;
+  await f.provisioner.reconcile(inventory);
+  assert.equal(f.automations.length, 0);
+  assert.equal(f.calls.filter((c) => c.path?.startsWith('/api/config/automation/config/')).length, writes);
+  assert.ok(f.errors.some((message) => message.includes('genoprettes ikke automatisk')));
+});
+
+test('new manual helpers and automations use the manual-soil HA category and stable sensor tag', async () => {
+  const f = fixture(); await f.provisioner.reconcile(inventory);
+  const helperEntities = f.entities.filter((entity) => entity.entity_id.startsWith('input_'));
+  assert.equal(helperEntities.length, 3);
+  assert.ok(helperEntities.every((entity) => entity.categories.helpers === 'helpers_0'));
+  assert.equal(f.entities.find((entity) => entity.entity_id === 'automation.new').categories.automation, 'automation_0');
+  assert.equal(f.automations[0].alias, 'MQTT name jordfugt alarm');
+});
+
+test('a temporary category failure does not leave a new threshold at zero and setup can finish on retry', async () => {
+  const f = fixture(); const original = f.provisioner.ws;
+  let failed = false;
+  f.provisioner.ws = async (type, fields) => {
+    if (!failed && type === 'config/category_registry/create') {
+      failed = true; throw new Error('Category connection failed');
+    }
+    return original(type, fields);
+  };
+  await f.provisioner.reconcile(inventory);
+  assert.equal(f.states.get(`input_number.soil_${ieee}_threshold`).state, '25');
+  await f.provisioner.reconcile(inventory);
+  assert.equal(f.profiles[ieee].threshold, 25);
+  assert.ok(f.entities.filter((entity) => entity.entity_id.startsWith('input_')).every((entity) => entity.categories.helpers === 'helpers_0'));
+});
+
+test('a deliberately deleted cooldown helper is not recreated with an empty push history', async () => {
+  const f = fixture(); await f.provisioner.reconcile(inventory);
+  const cooldown = `input_datetime.manual_soil_alarm_${f.profiles[ieee].notificationKey}_last_push`;
+  f.states.delete(cooldown);
+  f.entities.splice(f.entities.findIndex((entity) => entity.entity_id === cooldown), 1);
+  f.definitions.input_datetime.splice(0);
+  const creates = f.calls.filter((call) => call.type === 'input_datetime/create').length;
+  await f.provisioner.reconcile(inventory);
+  assert.equal(f.calls.filter((call) => call.type === 'input_datetime/create').length, creates);
+  assert.equal(f.states.has(cooldown), false);
+  assert.ok(f.errors.some((message) => message.includes('helper utilgængelig')));
+});
+
+test('only newly enrolled supported sensors get the one-time soil calibration default', async () => {
+  const supported = structuredClone(inventory);
+  supported[0].definition.exposes.push({ property: 'soil_calibration', access: 3 });
+  const f = fixture();
+  await f.provisioner.reconcile(supported);
+  assert.equal(f.profiles[ieee].soilCalibrationSetup, 'pending');
+  const calibrationId = 'number.renamed_calibration';
+  f.entities.push({
+    entity_id: calibrationId, device_id: 'ha-device', platform: 'mqtt', unique_id: `${ieee}_soil_calibration_zigbee2mqtt`,
+  });
+  f.states.set(calibrationId, { entity_id: calibrationId, state: 'unknown' });
+  await f.provisioner.reconcile(supported);
+  assert.equal(f.profiles[ieee].soilCalibrationSetup, 'initialized');
+  assert.equal(f.calls.filter((call) => call.path === '/api/services/number/set_value').length, 1);
+  f.states.get(calibrationId).state = '8';
+  await f.provisioner.reconcile(supported);
+  assert.equal(f.states.get(calibrationId).state, '8');
+  assert.equal(f.calls.filter((call) => call.path === '/api/services/number/set_value').length, 1);
+
+  const existing = fixture();
+  await existing.provisioner.reconcile(inventory);
+  await existing.provisioner.reconcile(supported);
+  assert.equal(existing.profiles[ieee].soilCalibrationSetup, undefined);
+  const legacy = fixture({ legacy: { id: 'original', use_blueprint: { path: 'wingman/manual-soil-moisture-alarm.yaml', input: { moisture_sensor: sensorId } } } });
+  await legacy.provisioner.reconcile(supported);
+  assert.equal(legacy.profiles[ieee].soilCalibrationSetup, undefined);
+});
+
+test('new helper and automation names use the HA device name; later renames do not reload or trigger automations', async () => {
+  const f = fixture();
+  f.devices[0].name_by_user = 'Chilli - T-2';
+  await f.provisioner.reconcile(inventory);
+  assert.equal(f.automations[0].alias, 'Chilli - T-2 jordfugt alarm');
+  assert.ok(f.entities.filter((entity) => entity.entity_id.startsWith('input_')).every((entity) => entity.original_name.startsWith('Chilli - T-2 ')));
+  const beforeConfig = structuredClone(f.automations);
+  const values = [...f.states].filter(([id]) => id.startsWith('input_'));
+  f.calls.splice(0);
+  f.devices[0].name_by_user = 'Peber - T-2';
+  await f.provisioner.reconcile(inventory);
+  assert.equal(f.calls.filter((call) => call.type === 'config/entity_registry/update' && call.fields.name?.startsWith('Peber - T-2 ')).length, 4);
+  assert.deepEqual(f.automations, beforeConfig);
+  assert.deepEqual([...f.states].filter(([id]) => id.startsWith('input_')), values);
+  assert.ok(!f.calls.some((call) => call.path?.startsWith('/api/services/automation/') || call.path?.startsWith('/api/config/automation/config/')));
+});
+
+test('a missing old cooldown cannot prevent renaming surviving helpers and automation', async () => {
+  const f = fixture(); await f.provisioner.reconcile(inventory);
+  const cooldown = `input_datetime.manual_soil_alarm_${f.profiles[ieee].notificationKey}_last_push`;
+  f.states.delete(cooldown);
+  f.entities.splice(f.entities.findIndex((entity) => entity.entity_id === cooldown), 1);
+  f.devices[0].name_by_user = 'Ny plante';
+  f.calls.splice(0);
+  await f.provisioner.reconcile(inventory);
+  assert.equal(f.calls.filter((call) => call.type === 'config/entity_registry/update' && call.fields.name?.startsWith('Ny plante ')).length, 3);
+  assert.equal(f.states.has(cooldown), false);
 });

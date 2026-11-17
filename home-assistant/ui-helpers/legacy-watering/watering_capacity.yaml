@@ -1,3 +1,4 @@
+# Reference/test defaults only. Helpers are UI-managed; the script belongs in scripts.yaml.
 input_boolean:
   ha_watering_capacity_busy:
     name: HA vandingskapacitet optaget

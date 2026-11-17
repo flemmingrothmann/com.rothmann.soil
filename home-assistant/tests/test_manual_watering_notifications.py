@@ -18,7 +18,7 @@ class BlueprintLoader(yaml.SafeLoader):
 BlueprintLoader.add_constructor('!input', lambda loader, node: loader.construct_scalar(node))
 BLUEPRINT = yaml.load((ROOT / 'blueprints/automation/wingman/manual-soil-moisture-alarm.yaml').read_text(), Loader=BlueprintLoader)
 PUSH = next(item for item in yaml.safe_load((ROOT / 'automations.yaml').read_text()) if item.get('id') == 'manuel_vanding_push_notifikation')
-HELPERS = yaml.safe_load((ROOT / 'packages/manual_watering_notifications.yaml').read_text())['input_datetime']
+HELPERS = yaml.safe_load((ROOT / 'ui-helpers/legacy-watering/manual_watering_notifications.yaml').read_text())['input_datetime']
 
 
 class ManualWateringNotificationTests(unittest.TestCase):

@@ -1,17 +1,25 @@
 'use strict';
 
 const { normalizeIeee } = require('./zigbeeIdentity');
+const { HomeAssistantCategories } = require('./haCategories');
+const { soilDisplayName, syncSoilNames } = require('./soilNames');
+
 const MANUAL_BLUEPRINT = 'wingman/manual-soil-moisture-alarm.yaml';
 const DEFAULT_THRESHOLD = 25;
+const DEFAULT_SOIL_CALIBRATION = 0;
 
-function featuresOf(device) {
+function featuresOf(device, access = 1) {
   const features = [];
   function visit(feature) {
-    if (feature.property && (feature.access & 1)) features.push(feature);
+    if (feature.property && (feature.access & access)) features.push(feature);
     if (!feature.property) (feature.features || []).forEach(visit);
   }
   (device.definition?.exposes || []).forEach(visit);
   return features;
+}
+
+function supportsSoilCalibration(device) {
+  return featuresOf(device, 2).some((feature) => feature.property === 'soil_calibration');
 }
 
 function candidates(inventory, devices, entities, profiles) {
@@ -25,7 +33,9 @@ function candidates(inventory, devices, entities, profiles) {
     const sensors = entities.filter((entry) => entry.device_id === haDevice.id && entry.platform === 'mqtt' && !entry.disabled_by
       && entry.unique_id === `${ieee}_soil_moisture_zigbee2mqtt` && !(entry.labels || []).includes('wingman_ignore'));
     if (sensors.length !== 1) return [];
-    return [{ ieee, device, haDevice, sensor: sensors[0] }];
+    return [{
+      ieee, device, haDevice, sensor: sensors[0],
+    }];
   });
 }
 
@@ -39,33 +49,71 @@ function existingManual(candidate, automations, profile) {
 }
 
 function softwareControlEvents(profile, id, payload) {
-  const threshold = payload.threshold;
-  if (!Number.isInteger(threshold) || threshold < 0 || threshold > 90 || typeof payload.alarm !== 'boolean' || !Number.isFinite(Date.parse(payload.time)))
+  const { threshold } = payload;
+  if (!Number.isInteger(threshold) || threshold < 0 || threshold > 90 || typeof payload.alarm !== 'boolean' || !Number.isFinite(Date.parse(payload.time))) {
     throw new Error(`${id}: ugyldig HA jordfugtstatus.`);
+  }
   const events = [];
   for (const [key, capability, value, unit] of [['threshold', 'soil_warning_threshold', threshold, '%'], ['alarm', 'alarm_water', payload.alarm, null]]) {
     if (profile.controlState?.[key] === value) continue;
-    events.push({ time: payload.time, homey_device_id: id, homey_zone_id: profile.zoneId, device_name: profile.name,
-      driver_id: profile.driverId, device_class: 'sensor', capability, value, unit, available: true,
-      source_system: 'home_assistant', source_instance: 'hubert-home-assistant', author_system: 'home_assistant',
-      event_type: 'observation', source_event_id: `${id}:${payload.time}:${capability}` });
+    events.push({
+      time: payload.time,
+      homey_device_id: id,
+      homey_zone_id: profile.zoneId,
+      device_name: profile.name,
+      driver_id: profile.driverId,
+      device_class: 'sensor',
+      capability,
+      value,
+      unit,
+      available: true,
+      source_system: 'home_assistant',
+      source_instance: 'hubert-home-assistant',
+      author_system: 'home_assistant',
+      event_type: 'observation',
+      source_event_id: `${id}:${payload.time}:${capability}`,
+    });
   }
   return { events, state: { threshold, alarm: payload.alarm } };
 }
 
 class SoilProvisioner {
-  constructor({ profiles, ws, request, readAutomations, persist, onControl, onChanged, log = console.error }) {
-    Object.assign(this, { profiles, ws, request, readAutomations, persist, onControl, onChanged, log });
+  constructor({
+    profiles, ws, request, readAutomations, persist, onControl, onChanged, log = console.error,
+  }) {
+    Object.assign(this, {
+      profiles, ws, request, readAutomations, persist, onControl, onChanged, log,
+    });
   }
 
   async service(domain, action, body) {
     return this.request(`/api/services/${domain}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   }
 
+  async initializeSoilCalibration(ieee, profile, snapshot) {
+    if (profile.soilCalibrationSetup !== 'pending') return;
+    const matches = snapshot.entities.filter((entity) => entity.platform === 'mqtt' && entity.device_id === profile.haDeviceId
+      && entity.unique_id === `${ieee}_soil_calibration_zigbee2mqtt` && !entity.disabled_by && entity.entity_id.startsWith('number.'));
+    if (matches.length !== 1) return;
+    const entityId = matches[0].entity_id;
+    const state = snapshot.states.get(entityId);
+    if (!state || state.state === 'unavailable') return;
+    if (state.state === 'unknown' || state.state === '' || Number(state.state) !== DEFAULT_SOIL_CALIBRATION) {
+      await this.service('number', 'set_value', { entity_id: entityId, value: DEFAULT_SOIL_CALIBRATION });
+    }
+    profile.soilCalibrationSetup = 'initialized';
+    this.persist();
+    this.log(`${ieee}: soil calibration standard ${DEFAULT_SOIL_CALIBRATION} % initialiseret via ${entityId}.`);
+  }
+
   async ensureHelper(domain, key, name, fields, initial, explicit, snapshot) {
     const existing = snapshot.entities.find((entity) => entity.platform === domain && entity.unique_id === key);
     const entityId = explicit || existing?.entity_id || `${domain}.${key}`;
-    if (snapshot.states.has(entityId)) return entityId;
+    const categories = new HomeAssistantCategories({ ws: this.ws, name: 'Manuel jordfugt' });
+    if (snapshot.states.has(entityId)) {
+      if (existing && !explicit) await categories.assign(entityId, 'helpers');
+      return entityId;
+    }
     if (explicit || existing) throw new Error(`${entityId}: helper utilgængelig; eksisterende indstilling nulstilles ikke.`);
     const definitions = await this.ws(`${domain}/list`);
     if (definitions.some((definition) => definition.id === key)) throw new Error(`${entityId}: afventer indlæsning af helper.`);
@@ -77,6 +125,7 @@ class SoilProvisioner {
     else if (domain === 'input_datetime') await this.service(domain, 'set_datetime', { entity_id: entityId, datetime: initial });
     const state = await this.request(`/api/states/${entityId}`);
     snapshot.states.set(entityId, state);
+    await categories.assign(entityId, 'helpers');
     return entityId;
   }
 
@@ -92,32 +141,49 @@ class SoilProvisioner {
     let changed = false;
     for (const candidate of candidates(inventory, devices, entities, this.profiles)) {
       try {
-        const { ieee, device, haDevice, sensor } = candidate;
+        const {
+          ieee, device, haDevice, sensor,
+        } = candidate;
         // Explicit watering/alarm owners are never silently converted to manual watering.
         if (automations.some((automation) => automation.use_blueprint?.path === 'wingman/soil-moisture-alarm.yaml'
           && automation.use_blueprint.input?.moisture_sensor === sensor.entity_id)) continue;
         const prior = this.profiles[ieee];
         const existing = existingManual(candidate, automations, prior);
+        if (prior && await syncSoilNames({
+          ieee, device, haDevice, profile: prior, automation: existing, snapshot, ws: this.ws,
+        })) changed = true;
+        if (prior?.automationId && !existing) {
+          this.log(`${ieee}: den manuelle alarm er slettet i HA; den genoprettes ikke automatisk.`);
+          continue;
+        }
         const inputs = existing?.use_blueprint.input || {};
         const oldSensor = inputs.moisture_sensor;
         const key = `soil_${ieee}`;
         const notificationKey = inputs.notification_key || prior?.notificationKey || (oldSensor ? oldSensor.replaceAll('.', '_') : `ieee_${ieee.slice(2)}`);
         const notificationId = `manual_soil_alarm_${notificationKey}`;
         const name = haDevice.name_by_user || haDevice.name || device.friendly_name;
+        const tag = soilDisplayName(device, haDevice, ieee);
         const notifications = prior ? [] : await this.ws('persistent_notification/get');
-        const threshold = await this.ensureHelper('input_number', `${key}_threshold`, `${name} jordfugtgrænse`,
-          { min: 0, max: 90, step: 1, unit_of_measurement: '%', mode: 'box' }, inputs.threshold ?? DEFAULT_THRESHOLD,
+        const threshold = await this.ensureHelper('input_number', `${key}_threshold`, `${tag} jordfugtgrænse`,
+          {
+            min: 0, max: 90, step: 1, unit_of_measurement: '%', mode: 'box',
+          }, inputs.threshold ?? DEFAULT_THRESHOLD,
           inputs.threshold_helper || prior?.haThresholdEntity, snapshot);
-        const alarm = await this.ensureHelper('input_boolean', `${key}_water_alarm`, `${name} vandalarm`, { icon: 'mdi:water-alert' },
+        const alarm = await this.ensureHelper('input_boolean', `${key}_water_alarm`, `${tag} vandalarm`, { icon: 'mdi:water-alert' },
           notifications.some((notification) => notification.notification_id === notificationId), inputs.water_alarm || prior?.haAlarmEntity, snapshot);
-        await this.ensureHelper('input_datetime', `${notificationId}_last_push`, `${name} seneste vandingspush`, { has_date: true, has_time: true },
-          '2000-01-01 00:00:00', undefined, snapshot);
+        await this.ensureHelper('input_datetime', `${notificationId}_last_push`, `${tag} seneste vandingspush`, { has_date: true, has_time: true },
+          '2000-01-01 00:00:00', prior ? `input_datetime.${notificationId}_last_push` : undefined, snapshot);
         const controlTopic = inputs.control_topic || prior?.controlTopic || `homeassistant/soil/${ieee}/control`;
         if (!controlTopic.startsWith('homeassistant/soil/') || /[+#]/.test(controlTopic)) throw new Error(`${ieee}: ugyldigt status-topic.`);
-        const config = existing ? structuredClone(existing) : { id: `manual_soil_${ieee}`, alias: `${name} jordfugt alarm`, use_blueprint: { path: MANUAL_BLUEPRINT, input: { plant_name: '' } } };
+        const config = existing ? structuredClone(existing) : { id: `manual_soil_${ieee}`, alias: `${tag} jordfugt alarm`, use_blueprint: { path: MANUAL_BLUEPRINT, input: { plant_name: '' } } };
         config.id = String(config.id);
-        Object.assign(config.use_blueprint.input, { moisture_sensor: sensor.entity_id, threshold_helper: threshold, water_alarm: alarm,
-          control_topic: controlTopic, notification_key: notificationKey });
+        Object.assign(config.use_blueprint.input, {
+          moisture_sensor: sensor.entity_id,
+          threshold_helper: threshold,
+          water_alarm: alarm,
+          control_topic: controlTopic,
+          notification_key: notificationKey,
+        });
         if (!existing || JSON.stringify(config) !== JSON.stringify(existing)) {
           await this.request(`/api/config/automation/config/${config.id}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(config) });
           reload = true;
@@ -129,19 +195,43 @@ class SoilProvisioner {
           ['illuminance', 'measure_luminance'], ['battery', 'measure_battery'], ['linkquality', 'linkquality']]
           .filter(([property]) => featureNames.has(property)).map(([, capability]) => capability).concat(['soil_warning_threshold', 'alarm_water']);
         const area = areas.find((entry) => entry.area_id === (sensor.area_id || haDevice.area_id));
-        const profile = { ...prior, autoManual: true, name, haDeviceId: haDevice.id, zoneId: area?.area_id || 'ha_unassigned', zoneName: area?.name || 'Uplaceret',
-          haMoistureEntity: sensor.entity_id, haThresholdEntity: threshold, haAlarmEntity: alarm, controlTopic, notificationKey, automationId: config.id,
-          driverId: `zigbee2mqtt:${device.definition.vendor}:${device.definition.model}`, capabilities };
-        if (JSON.stringify(profile) !== JSON.stringify(prior)) { this.profiles[ieee] = profile; changed = true; }
+        const profile = {
+          ...prior,
+          ...(!prior && !existing && supportsSoilCalibration(device) ? { soilCalibrationSetup: 'pending' } : {}),
+          autoManual: true,
+          name,
+          haDeviceId: haDevice.id,
+          zoneId: area?.area_id || 'ha_unassigned',
+          zoneName: area?.name || 'Uplaceret',
+          haMoistureEntity: sensor.entity_id,
+          haThresholdEntity: threshold,
+          haAlarmEntity: alarm,
+          controlTopic,
+          notificationKey,
+          automationId: config.id,
+          driverId: `zigbee2mqtt:${device.definition.vendor}:${device.definition.model}`,
+          capabilities,
+        };
+        if (JSON.stringify(profile) !== JSON.stringify(prior)) {
+          this.profiles[ieee] = profile; changed = true;
+          // Persist enrollment before dispatch so delayed discovery survives a restart.
+          if (profile.soilCalibrationSetup === 'pending') this.persist();
+        }
+        if (profile.soilCalibrationSetup === 'pending') {
+          await this.initializeSoilCalibration(ieee, this.profiles[ieee], snapshot);
+        }
         const thresholdReading = snapshot.states.get(threshold);
         const alarmReading = snapshot.states.get(alarm);
         const thresholdState = thresholdReading?.state;
         const alarmState = alarmReading?.state;
         const timestamps = [thresholdReading?.last_updated, alarmReading?.last_updated].map(Date.parse).filter(Number.isFinite);
         const controlTime = timestamps.length ? new Date(Math.max(...timestamps)).toISOString() : new Date().toISOString();
-        if (!['unknown', 'unavailable', undefined].includes(thresholdState) && ['on', 'off'].includes(alarmState))
+        if (!['unknown', 'unavailable', undefined].includes(thresholdState) && ['on', 'off'].includes(alarmState)) {
           await this.onControl(ieee, this.profiles[ieee], { threshold: Number(thresholdState), alarm: alarmState === 'on', time: controlTime });
-      } catch (error) { this.log(`Soil setup: ${error.message || error}`); }
+        }
+      } catch (error) {
+        this.log(`Soil setup: ${error.message || error}`);
+      }
     }
     if (changed) this.persist();
     if (changed) await this.onChanged();
@@ -151,6 +241,8 @@ class SoilProvisioner {
       for (const item of activate) {
         const entity = states.find((state) => state.entity_id.startsWith('automation.') && state.attributes?.id === item.id);
         if (!entity) throw new Error(`${item.id}: automation blev ikke indlæst.`);
+        const categories = new HomeAssistantCategories({ ws: this.ws, name: 'Manuel jordfugt' });
+        await categories.assign(entity.entity_id, 'automation');
         if (!item.enabled) await this.service('automation', 'turn_off', { entity_id: entity.entity_id, stop_actions: true });
         else await this.service('automation', 'trigger', { entity_id: entity.entity_id, skip_condition: false });
       }
@@ -158,4 +250,6 @@ class SoilProvisioner {
   }
 }
 
-module.exports = { DEFAULT_THRESHOLD, MANUAL_BLUEPRINT, featuresOf, candidates, existingManual, softwareControlEvents, SoilProvisioner };
+module.exports = {
+  DEFAULT_THRESHOLD, DEFAULT_SOIL_CALIBRATION, MANUAL_BLUEPRINT, featuresOf, supportsSoilCalibration, candidates, existingManual, softwareControlEvents, SoilProvisioner,
+};

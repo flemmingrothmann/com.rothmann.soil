@@ -1,5 +1,8 @@
 # Repository Notes
 
+## Private Repository Boundary
+- Dette er et privat repository. Brug ALDRIG Bording-ressourcer til arbejdet: ingen Bording Jira/Confluence, Azure DevOps, credentials, infrastruktur eller andre arbejdsressourcer. Globale arbejdsgange om Jira gælder ikke her. Brug kun repoets private systemer og brugerens private infrastruktur, herunder `hubert`.
+
 ## Homey Insights
 - For local Homey API calls, Insights log entries are fetched with the full log id as the `:id` path segment, not only the capability id.
 - Working shape: `GET /api/manager/insights/log/<ownerUri>/<fullLogId>/entry?resolution=<resolution>`.
@@ -17,8 +20,14 @@
 - Runtime/deploy-verifikation for dashboard, Wingman ingest og mini-PC services skal ske mod `hubert` (typisk `fro@192.168.100.66`) og ikke mod lokale Docker-containere på udviklingsmaskinen.
 - Netværksudfald mod `hubert` er normalt midlertidige. Ved unattended eller længerevarende arbejde: vent kort og retry forbindelsen, før du betragter det som en blocker.
 - Dashboard-deploy skal bruge hele repoets build-context, inklusive `dashboard/public/`; rebuild aldrig med kun en ny `server.js` og gamle frontend-filer på hubert. Kontrollér både build-context og kørende container med `node tools/verify-dashboard-assets.js`, og verificér den berørte UI-funktion — HTTP 200 alene er ikke nok. Batteripanelet blev skjult ved et server-only deploy 11. november 2026, selv om det lå committet i repoet.
+- Ved Z2M-opgraderinger skal eksterne batteri-converters arve den aktuelle indbyggede definition, ikke kopiere gamle datapoints og dermed skjule upstream-rettelser. Test også den samlede `prepareDefinition` i kandidatens image uden radio/netværk. Versionsmærk ændret configure-adfærd, så sovende sensorer kan genkonfigureres ved næste fysiske besked; indlæst converter er ikke bevis på fysisk rapportering. Se `docs/hubert-ha-z2m-upgrade-review.md`.
 
 ## Home Assistant
+- Alle aktive vandingshelpers er UI-administrerede. De gamle pakker til jordfugt, terrassevanding, kapacitet og push-cooldown er migreret/ryddet op; kopiér aldrig `home-assistant/ui-helpers/legacy-watering/` tilbage til `packages/`. Kapacitetsscriptet skal ligge i `scripts.yaml`. Se `docs/home-assistant-watering-ui.md`.
+- Vandingsartefakter kategoriseres via HA WebSocket `config/category_registry/*` og `config/entity_registry/update` med `categories`. De UI-understøttede scopes er `automation`, `helpers` (flertal) og `script`. Brug `Vandingskredse` til automatisk vanding og `Manuel jordfugt` til manuelle alarmer; bevar eksisterende brugerbestemte kategorivalg.
+- Sletning i HA UI er en bevidst handling: genopret aldrig en kendt manuel alarm automatisk, når profilens `automationId` er fjernet fra HA. Nye sensorer klargøres stadig automatisk. Manglende/slettede eksisterende helpers må ikke erstattes med nulstillede defaults.
+- Jordfugtsensorer navngives i HA som `<plantenavn> - <sensormærkat>`, fx `Chilli - T-2`, med bindestreg og ikke parenteser af hensyn til mobilindtastning. Z2M beholder det permanente mærkatnavn (`T-2`); placering sættes som HA-område. Manuelle alarmers `plant_name` skal være tomt, så de følger HA-enhedsnavnet.
+- Brugerrettelse 15. november 2026: Jordfugthjælperes og individuelle manuelle alarmers visningsnavne skal følge det aktuelle MQTT-enhedsnavn i HA (`name_by_user` først, ellers Z2M-navnet), også efter senere omdøbninger. IEEE-adresser er teknisk identitet, aldrig det ønskede vedligeholdelsesnavn. Bevar eksplicitte særnavne på helper/automation samt entitets-ID'er, værdier, historik, cooldown og MQTT-topics. Se `docs/soil-display-names.md`. Blueprintet til automatisk vandingsbehov hedder `Jordfugtalarm til automatisk vandingskreds`; det danner alarmen, men styrer ikke selv ventilen.
 - Fra HA 2026.8 ejes HTTP-/proxy-/loginindstillinger af UI/WebSocket `http/config`, ikke YAML. Kontrollér altid den aktive konfiguration før en sikkerhedsvurdering; manglende `http:` i YAML er ikke tegn på manglende proxybeskyttelse. Ændr via `http/config/configure`, verificér efter genstart og bekræft med `http/config/promote` inden rollback-fristen. Se `docs/home-assistant-security.md`.
 - Manuelle vandingsalarmer bruger sensorens HA-område i titlen. Push begrænses til én pr. sensor pr. rullende 24 timer via persistente `input_datetime`-helpers. Soil-adapteren opretter automatisk UI-helpers og udvider den eksisterende manuelle alarm for nye Zigbee-jordfugtsensorer; nye mobilapps tilføjes fortsat i UI-automationen `Manuel vanding push til mobilapps`. Se `docs/manual-watering-notifications.md`. HA-notifikationer genoprettes efter genstart og er ikke i sig selv en holdbar deduplikeringsmekanisme.
 - WebSocket `trace/list` returnerer traces i stigende tidsorden i den testede HA-version; vælg nyeste trace via tidsstempel eller sidste element, ikke første element, ved kontrol af indlæst config.
@@ -69,8 +78,11 @@
 - Bevar Wingman-historik-ID ved HA-entity-omdøbning; brug den aktuelle eksplicitte `haEntityId` til lysstyring og versionsbundne replay-ruter. Et MQTT-topicnavn er aldrig en autoritativ områdekobling.
 - Brugerkrav 11. november 2026: sensorer skal kunne flyttes mellem potter og omdøbes frit uden identitets-/historikskift. Soil-profiler og historik bindes til IEEE; aktuelle MQTT-topics kommer fra Z2M-inventaret, aldrig fra gamle visuelle navne. Kræv frisk inventory ved reconnect, og lad aldrig genbrug af et pottenavn sammenblande sensorer. Historikken følger sensoren; vandingstilknytning ændres kun eksplicit.
 - Brugerkrav 12. november 2026: jordfugtgrænser og manuelle alarmer skal virke out-of-the-box for kommende Zigbee-sensorer, også uden hardwarealarm. Genkend `soil_moisture`, opret UI-administrerede HA-helpers (default 25 %, 0 deaktiverer), og behold HA som alarmmotor. Bevar brugerens grænser, alarmaktivering og push-cooldown; udvid eksisterende manuelle automatikker frem for at duplikere dem. Overtag ikke eksplicitte vandingskredse. Softwarestatus må ikke gøre en fysisk offline sensor online.
+- Brugerkrav 13. november 2026: ved ny automatisk tilmelding sættes understøttet `soil_calibration` til 0 % én gang via sensorens IEEE-matchede HA-tal-entitet. Eksisterende sensorer og senere brugerændringer må ikke nulstilles. Bevar afventende initialisering ved forsinket HA-discovery/genstart; et accepteret HA-kald er ikke bevis på fysisk kvittering. Se `soil-controller/README.md`.
 
 ## Dashboard Data Flow
+
+- Kontakter: slettede Homey-enheder udgår ved næste fulde inventarsynkronisering (normalt fem minutter); historik må ikke genskabe dem. Eksisterende offline/ukendte kontakter vises som ukendte, aldrig åbne/lukkede. Gentagne åben-observationer må ikke nulstille åbningstid. Ved kontaktmigrering til HA accepteres ny historik uden Homey-sammenkobling. Se `docs/contact-dashboard.md`.
 - Dashboardet skal som hovedregel læse fra Wingman DB/API, ikke direkte fra Homey.
 - Direkte Homey-kald bør kun bruges til write actions, f.eks. tænde/slukke lys og ændre `Vanding forbudt`.
 - Current-state refresh kan være hurtig, ca. `3 sek.`, fordi data kommer fra lokal Wingman/Postgres.
@@ -79,6 +91,8 @@
 - Under controller-migrering skal dashboardet fortsat vise Homey-sensorer som offline/fejl, mens den aktive HA/Zigbee2MQTT-enhed vises under sit HA-område. Skjul eller sammensmelt ikke controllerens reelle helbredstilstand.
 
 ## Watering Flows
+- Afmonterede vandingskredse skal kunne fjernes uden at sætte hardware online igen. Brug en eksplicit fysisk afmonteret/frakoblet-vand-bekræftelse bundet til fjernelsespreviewet; verificér slukket/inaktiv HA-vandingsautomation, foretag ingen ventilkald, og bevar beskyttelsen af øvrige kredse. Offline alene er hverken bevis på fare eller godkendelse af nedtagning.
+- HA-vandingskredse administreres via `soil-controller/wateringAdmin.js` og Wingmans kredsoversigt; se `docs/watering-circuit-administration.md` og API-kontrakten dér. Nye helpers/automatikker skal være UI-administrerede. Brug aldrig de gamle label-input `apply/migrate/remove`-kald. Bevar eksisterende helperværdier, og kræv frisk forhåndsvisning/bekræftelse; spær HA-kredsene under ændringer og afvis aktive/ukendte vandingsforløb før automation-reload.
 - Setup contract, lifecycle statuses, per-valve duration variables and layout rules for Homey watering Advanced Flows are documented in `docs/watering-flow-architecture.md`.
 - Read that document before creating or changing a watering valve, its Advanced Flow or dashboard lifecycle handling.
 

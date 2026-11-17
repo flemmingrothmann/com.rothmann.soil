@@ -99,6 +99,9 @@ trigger:
   - platform: state
     entity_id: !input watering_error
     to: 'off'
+  - platform: state
+    entity_id: !input watering_forbidden
+    to: 'off'
 
 condition:
   - condition: template

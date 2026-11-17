@@ -28,6 +28,25 @@
         brightness_pct: 100
         transition: 0
   mode: single
+- id: sovevaerelse_skab_led_driver_always_on
+  alias: Soveværelse skab LED-driver altid tændt
+  description: >-
+    Holder LED-driveren tændt, så de analoge sensorer i LED-lyset altid har strøm.
+  triggers:
+    - trigger: state
+      entity_id: switch.sovevaerelse_skab_led_driver
+      to: "off"
+    - trigger: homeassistant
+      event: start
+  conditions:
+    - condition: state
+      entity_id: switch.sovevaerelse_skab_led_driver
+      state: "off"
+  actions:
+    - action: switch.turn_on
+      target:
+        entity_id: switch.sovevaerelse_skab_led_driver
+  mode: single
 - id: manuel_vanding_push_notifikation
   alias: Manuel vanding push til mobilapps
   description: >-
@@ -100,27 +119,6 @@
       moisture_sensor: sensor.0xffffb40e06059d35_soil_moisture
       plant_name: Efeu
       threshold: 25
-- id: terrasse_potter_labelled_watering
-  alias: Terrasse potter vanding
-  description: >-
-    Vandsløjfe for enheder med labelen vanding-terasse-potter.
-  use_blueprint:
-    path: wingman/labelled-pot-watering.yaml
-    input:
-      watering_label: vanding_terasse_potter
-      valve: switch.0xe456acfffe60f0b5
-      water_alarms:
-        - input_boolean.myggeplante_water_alarm
-        - input_boolean.terrasse_vaegpotte_water_alarm
-      cycle_duration: input_number.terrasse_potter_cycle_duration
-      pause_duration: input_number.terrasse_potter_pause_duration
-      maximum_cycles: input_number.terrasse_potter_maximum_cycles
-      cycle_number: input_number.terrasse_potter_cycle_number
-      watering_error: input_boolean.terrasse_potter_watering_error
-      watering_forbidden: input_boolean.terrasse_potter_watering_forbidden
-      lifecycle_status: input_select.terrasse_potter_watering_status
-      capacity_busy: input_boolean.ha_watering_capacity_busy
-      capacity_acquire: script.ha_watering_capacity_acquire
 - id: flemmings_vaerelse_vaeglys_tryk
   alias: Flemmings værelse væglys
   description: >-

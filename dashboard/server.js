@@ -1515,19 +1515,18 @@ function normalizeBooleanEntries(entries) {
 }
 
 function getActiveSince(entries) {
-  const normalizedEntries = normalizeBooleanEntries(entries);
+  const normalizedEntries = entries
+    .map((entry) => ({ t: Date.parse(entry.t), v: entry.v }))
+    .filter((entry) => Number.isFinite(entry.t))
+    .sort((a, b) => a.t - b.t);
+  let activeSince = null;
 
   for (let index = normalizedEntries.length - 1; index >= 0; index -= 1) {
-    if (normalizedEntries[index].v === true) {
-      return normalizedEntries[index].t;
-    }
-
-    if (normalizedEntries[index].v === false) {
-      return null;
-    }
+    if (normalizedEntries[index].v !== true) break;
+    activeSince = normalizedEntries[index].t;
   }
 
-  return null;
+  return activeSince;
 }
 
 async function toActiveContactSensor(device, zoneInfo) {
@@ -1537,17 +1536,21 @@ async function toActiveContactSensor(device, zoneInfo) {
     pathText: device.zone || "Ukendt zone",
   };
   let openSince = null;
-  let error = null;
+  const open = isAvailable(device) && typeof getCapabilityValue(device, "alarm_contact") === "boolean"
+    ? getCapabilityValue(device, "alarm_contact") : null;
+  let error = open === null ? "Kontaktstatus er ukendt eller sensoren er utilgængelig." : null;
 
   try {
-    const entries = await getInsightEntries(
-      device.id,
-      "alarm_contact",
-      CONTACT_INSIGHTS_RESOLUTION,
-    );
-    const activeSince = getActiveSince(entries);
-    openSince =
-      activeSince === null ? null : new Date(activeSince).toISOString();
+    if (open === true) {
+      const entries = await getInsightEntries(
+        device.id,
+        "alarm_contact",
+        CONTACT_INSIGHTS_RESOLUTION,
+      );
+      const activeSince = getActiveSince(entries);
+      openSince =
+        activeSince === null ? null : new Date(activeSince).toISOString();
+    }
   } catch (insightsError) {
     if (!isMissingInsightsLogError(insightsError)) {
       error = insightsError.message || String(insightsError);
@@ -1564,7 +1567,7 @@ async function toActiveContactSensor(device, zoneInfo) {
     zonePath: zone.path,
     zonePathText: zone.pathText,
     available: isAvailable(device),
-    open: getCapabilityValue(device, "alarm_contact") === true,
+    open,
     openSince,
     openDurationMs: Number.isFinite(openSinceMs)
       ? Math.max(0, Date.now() - openSinceMs)
@@ -1618,7 +1621,7 @@ async function getContactDashboard() {
   );
   const activeSensors = await Promise.all(
     contactDevices
-      .filter((device) => getCapabilityValue(device, "alarm_contact") === true)
+      .filter((device) => !isAvailable(device) || getCapabilityValue(device, "alarm_contact") !== false)
       .map((device) => toActiveContactSensor(device, zoneInfo)),
   );
 
@@ -1646,7 +1649,7 @@ async function getContactDashboard() {
     source: "wingman-db",
     totals: {
       sensors: contactDevices.length,
-      active: activeSensors.length,
+      active: activeSensors.filter((sensor) => sensor.open === true).length,
       zones: zones.length,
       errors: activeSensors.filter((sensor) => sensor.error).length,
     },
@@ -3715,13 +3718,18 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && request.url === "/api/watering-circuits") {
+      sendJson(response, 200, await requestSoilController("GET", "/api/watering-circuits"));
+      return;
+    }
+
     if (
       request.method === "POST" &&
       request.url.startsWith("/api/watering-circuits/")
     ) {
       const url = new URL(request.url, `http://${request.headers.host}`);
       const action = url.pathname.match(
-        /^\/api\/watering-circuits\/(plan|apply|migrate|remove)$/,
+        /^\/api\/watering-circuits\/(preview|save|delete)$/,
       )?.[1];
       if (!action) {
         sendError(response, 404, "Ukendt vandingskreds-handling.");
@@ -3995,6 +4003,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  getContactDashboard,
   getActiveSince,
   countWaterAlarmActivations,
   canSetSoilAlarmThreshold,

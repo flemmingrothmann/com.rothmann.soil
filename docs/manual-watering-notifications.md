@@ -13,9 +13,10 @@
   Nye og opdaterede alarmer kontrolleres; første fugtopdatering efter 24 timer
   kan sende en ny påmindelse, hvis planten fortsat er tør. HA-notifikationen opdateres løbende.
 - Seneste push gemmes pr. sensor i `input_datetime.<notification_id>_last_push`.
-  De to oprindelige helpers ligger i `home-assistant/packages/manual_watering_notifications.yaml`
-  uden `initial`, så tidspunktet bevares ved reload/genstart. Nye cooldown-helpers
-  oprettes i HA's UI-storage. Sletning/genoprettelse af en alarm nulstiller ikke cooldown.
+  Også de to oprindelige helpers er nu UI-administrerede, med samme ID'er og
+  bevarede tidspunkter. Reference/testdefaults ligger i
+  `home-assistant/ui-helpers/legacy-watering/manual_watering_notifications.yaml`.
+  Sletning/genoprettelse af en alarm nulstiller ikke cooldown.
 - Cooldown kontrolleres inde i den serielle kø, og tidspunktet reserveres **før**
   mobilkaldet. Samtidige events kan derfor ikke give dobbelte push. Et fejlet
   mobilkald bruger også vinduet; der foretages ikke automatisk genforsøg samme døgn.
@@ -31,9 +32,10 @@
 
 - Kør `tests/test_manual_watering_notifications.py` i HA-containeren med
   `HA_TEST_ROOT` pegende på testkopien af konfigurationen.
-- Deploy kun helperpakken og automationen med ID `manuel_vanding_push_notifikation`;
+- Deploy kun den berørte blueprint/automation med ID `manuel_vanding_push_notifikation`;
   bevar alle øvrige live-automatikker og tag backup først. Bevar live-listen over mobilapps.
-- Kør HA-konfigurationskontrol, `input_datetime.reload` og `automation.reload`.
+- Helpers vedligeholdes i HA UI; deploy ikke de gamle YAML-defaults. Se
+  [UI-vedligeholdelse og migrering](home-assistant-watering-ui.md).
   Ved migrering sættes helperne til seneste kendte push (eller konservativt nu),
   før den ændrede push-automation aktiveres, så deploy ikke sender nye push.
 - Kontrollér via `trace/get`, at den indlæste cooldown afviser gentagne events,

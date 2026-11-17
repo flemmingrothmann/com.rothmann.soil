@@ -13,7 +13,7 @@ services:
       - home-automation
 
   zigbee2mqtt:
-    image: koenkk/zigbee2mqtt:latest
+    image: koenkk/zigbee2mqtt:2.14.3
     container_name: zigbee2mqtt
     restart: unless-stopped
     depends_on:

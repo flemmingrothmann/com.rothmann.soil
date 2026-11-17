@@ -275,7 +275,8 @@ h1 {
   padding: 12px 14px;
 }
 
-.watering-circuit-page input {
+.watering-circuit-page input:not([type="checkbox"]),
+.watering-circuit-page select {
   border: 1px solid rgba(76, 122, 69, 0.28);
   border-radius: 10px;
   font: inherit;
@@ -299,6 +300,24 @@ h1 {
 .watering-circuit-page form { display: grid; gap: 8px; margin-top: 20px; }
 
 .watering-circuit-page label { font-weight: 800; }
+
+.circuit-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.circuit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 18px; margin-top: 24px; }
+.circuit-card { border: 1px solid var(--line); border-radius: 18px; padding: 20px; background: #fff; overflow-wrap: anywhere; }
+.circuit-card h3 { margin: 0; }
+.circuit-card h4 { margin: 18px 0 6px; }
+.circuit-card .topline { flex-wrap: wrap; }
+.circuit-warnings { color: #85451e; background: #fff5e7; padding: 14px 14px 14px 30px; border-radius: 12px; }
+.circuit-delete { color: #8c3535; }
+#watering-circuit-editor { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); scroll-margin-top: 24px; }
+.watering-circuit-page fieldset { min-width: 0; border: 1px solid var(--line); border-radius: 14px; margin: 14px 0; padding: 12px; }
+.watering-circuit-page legend { font-weight: 800; padding: 0 8px; }
+.circuit-sensor-choice { display: flex; align-items: center; gap: 12px; padding: 12px 6px; cursor: pointer; }
+.circuit-sensor-choice input { flex: 0 0 auto; width: 20px; height: 20px; }
+.circuit-sensor-choice small { display: block; margin-top: 4px; font-weight: 400; color: var(--muted); }
+.circuit-confirm { margin-top: 24px; padding: 20px; border: 1px solid #b2c9a7; border-radius: 16px; background: #f2f7ee; }
+.watering-circuit-page button { min-height: 44px; }
+.watering-circuit-page button:disabled { opacity: .5; cursor: not-allowed; }
 
 .watering-circuit-locked {
   align-items: center;

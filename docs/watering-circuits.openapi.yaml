@@ -1,0 +1,103 @@
+openapi: 3.0.3
+info:
+  title: Wingman HA watering circuit administration
+  version: 1.0.0
+servers:
+  - url: /
+security:
+  - dashboardSession: []
+paths:
+  /api/watering-circuits:
+    get:
+      summary: List HA circuits and unambiguously mapped valve/sensor candidates
+      responses:
+        '200':
+          description: Object with circuits, valves and sensors arrays; includes current HA state and mapping warnings
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/watering-circuits/preview:
+    post:
+      summary: Read-only validation and consequence preview
+      requestBody:
+        $ref: '#/components/requestBodies/Draft'
+      responses:
+        '200':
+          description: Plan with revision, effects, blockers, added/removed sensors and selected valve/sensors. Nonempty blockers disable confirmation. Does not write HA state.
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/watering-circuits/save:
+    post:
+      summary: Create or update a circuit after explicit confirmation
+      requestBody:
+        $ref: '#/components/requestBodies/Draft'
+      responses:
+        '200':
+          description: Object with saved true and circuit name
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/watering-circuits/delete:
+    post:
+      summary: Remove the circuit automations and release its sensors; preserve helpers/history
+      requestBody:
+        $ref: '#/components/requestBodies/Draft'
+      responses:
+        '200':
+          description: Object with removed true and circuit name
+        '400':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    dashboardSession:
+      type: apiKey
+      in: cookie
+      name: soil_dashboard_session
+      description: Existing dashboard login; the internal soil-controller instead requires its existing Bearer INGEST_TOKEN
+  requestBodies:
+    Draft:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              id:
+                type: string
+                nullable: true
+                description: Existing HA watering automation ID; omit for creation
+              name:
+                type: string
+                minLength: 1
+                maxLength: 60
+              valve:
+                type: string
+                description: Explicit HA switch entity ID of an inventory-mapped water valve
+              sensors:
+                type: array
+                minItems: 1
+                maxItems: 50
+                uniqueItems: true
+                items:
+                  type: string
+              deleting:
+                type: boolean
+                description: True for a removal preview; id alone then selects the existing configuration
+              decommissioned:
+                type: boolean
+                description: Explicit assertion that the circuit is physically dismantled and disconnected from water. Only valid for removal; permits an offline target only if its loaded watering automation is off and inactive. Included in the preview revision. Other watering circuits remain protected.
+              revision:
+                type: string
+                description: Required by save/delete; must match the current preview
+              confirm:
+                type: boolean
+                description: Must be true for save/delete; no writes otherwise
+  responses:
+    Error:
+      description: Existing API errors; show the returned error to the user
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string

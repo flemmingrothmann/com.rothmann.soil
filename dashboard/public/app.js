@@ -1237,29 +1237,28 @@ function renderWateringDashboard(data) {
   content.innerHTML = `${configurator}${errors}<section><h2 class="section-title">Vandingsventiler</h2><div class="grid">${data.valves.map(renderWateringValve).join('')}</div></section>`;
 }
 
+let wateringCircuitData = null;
+let wateringCircuitPlan = null;
+let wateringCircuitDraft = null;
+let wateringCircuitSaving = false;
+
 function showWateringCircuitResult(message, actions = '') {
   const result = document.getElementById('watering-circuit-result');
+  if (!result) return;
   result.innerHTML = `<p>${escapeHtml(message)}</p>${actions}`;
   result.hidden = false;
 }
 
-function lockWateringCircuitLabel(label) {
-  const form = document.getElementById('watering-circuit-form');
-  form.hidden = true;
-  form.insertAdjacentHTML('afterend', `<div id="watering-circuit-locked" class="watering-circuit-locked"><strong>Vandingslabel: ${escapeHtml(label)}</strong><button type="button" data-watering-circuit-new>Ny label</button></div>`);
+function wateringCircuitState(circuit) {
+  if (circuit.warnings.length) return 'Kræver opmærksomhed';
+  if (!circuit.enabled) return 'Automation slået fra';
+  if (circuit.forbidden) return 'Vanding forbudt';
+  return {
+    idle: 'Klar', watering: 'Vander', waiting_result: 'Afventer resultat', waiting_capacity: 'Afventer kapacitet', cycle_limit: 'Maks. cyklusser',
+  }[circuit.status] || 'Ukendt status';
 }
 
-function resetWateringCircuitLabel() {
-  document.getElementById('watering-circuit-locked')?.remove();
-  const form = document.getElementById('watering-circuit-form');
-  form.hidden = false;
-  form.elements.label.value = '';
-  form.querySelector('button').disabled = false;
-  document.getElementById('watering-circuit-result').hidden = true;
-  form.elements.label.focus();
-}
-
-function loadWateringCircuitPage() {
+async function loadWateringCircuitPage() {
   setActiveView('circuits');
   setActiveTab();
   setDashboardTitle('Vandingskredse');
@@ -1268,101 +1267,157 @@ function loadWateringCircuitPage() {
   document.getElementById('total-devices').textContent = '-';
   document.getElementById('total-alarms').textContent = '-';
   setUpdatedAt(null);
-  document.getElementById('content').innerHTML = `<section class="watering-circuit-page">
-    <button type="button" class="back-button" data-watering-circuit-back>Tilbage til vanding</button>
-    <p class="threshold-kicker">Administrer vandingskredse</p>
-    <h2>HA-vandingskreds</h2>
-    <p>Indtast én HA-label. Den skal mærke præcis én ventil og mindst én jordfugtsensor.</p>
-    <form id="watering-circuit-form"><label for="watering-circuit-label">Vandingslabel</label><input id="watering-circuit-label" name="label" maxlength="60" placeholder="fx vanding-terasse-potter" required><button type="submit">Kontrollér</button></form>
-    <div id="watering-circuit-result" class="watering-circuit-result" hidden></div>
-  </section>`;
-  document.getElementById('watering-circuit-label').focus();
   scheduleRefresh(false);
+  wateringCircuitPlan = null;
+  wateringCircuitDraft = null;
+  document.getElementById('content').innerHTML = '<section class="empty" role="status">Henter vandingskredse fra HA…</section>';
+  try {
+    const response = await fetch('/api/watering-circuits');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    if (activeView !== 'circuits') return;
+    wateringCircuitData = data;
+    setUpdatedAt(data.generatedAt || new Date().toISOString());
+    document.getElementById('total-devices').textContent = data.circuits.length;
+    document.getElementById('total-alarms').textContent = data.circuits.filter((c) => c.warnings.length).length;
+    document.getElementById('content').innerHTML = `<section class="watering-circuit-page">
+      <div class="circuit-toolbar"><button type="button" class="back-button" data-watering-circuit-back>Tilbage til vanding</button><button type="button" class="device-action" data-watering-circuit-new>Opret vandingskreds</button></div>
+      <h2>Dine vandingskredse</h2><p>Vælg en kreds for at ændre, hvilke sensorer der styrer dens ventil.</p>
+      <div class="circuit-grid">${data.circuits.map((c) => `<article class="circuit-card">
+        <div class="topline"><h3>${escapeHtml(c.name)}</h3><span class="badge ${c.warnings.length ? 'action' : ''}">${escapeHtml(wateringCircuitState(c))}</span></div>
+        <p><strong>Ventil:</strong> ${escapeHtml(c.valve.name)}${c.valve.area ? ` · ${escapeHtml(c.valve.area)}` : ''}</p>
+        <h4>Jordfugtsensorer</h4><ul>${c.sensors.map((sensor) => `<li>${escapeHtml(sensor.name)}${sensor.area ? ` · ${escapeHtml(sensor.area)}` : ''}${sensor.available ? '' : ' — utilgængelig'}</li>`).join('')}</ul>
+        ${c.warnings.length ? `<ul class="circuit-warnings">${c.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : ''}
+        <div class="circuit-toolbar"><button type="button" data-watering-circuit-edit="${escapeHtml(c.id)}" ${c.editable ? '' : 'disabled'}>Redigér kreds</button><button type="button" class="circuit-delete" data-watering-circuit-delete="${escapeHtml(c.id)}" ${c.editable ? '' : 'disabled'}>Fjern kreds</button></div>
+      </article>`).join('') || '<p>Du har endnu ingen HA-vandingskredse.</p>'}</div>
+      <section id="watering-circuit-editor" hidden></section><div id="watering-circuit-result" class="watering-circuit-result" role="status" aria-live="polite" hidden></div>
+    </section>`;
+  } catch (error) {
+    if (activeView === 'circuits') document.getElementById('content').innerHTML = `<section class="error">Kunne ikke hente vandingskredse: ${escapeHtml(error.message)}</section>`;
+  }
 }
 
-async function configureWateringCircuit(action, label, confirm = false) {
+async function configureWateringCircuit(action, body) {
   const response = await fetch(`/api/watering-circuits/${action}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label, confirm }),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || response.statusText);
   return data;
 }
 
+function editWateringCircuit(id = null) {
+  const circuit = wateringCircuitData?.circuits.find((c) => c.id === id);
+  if (!wateringCircuitData || (id && !circuit)) return;
+  wateringCircuitPlan = null;
+  wateringCircuitDraft = { id };
+  const editor = document.getElementById('watering-circuit-editor');
+  const usedBy = (entityId) => wateringCircuitData.circuits.find((c) => c.id !== id && (c.valve.entityId === entityId || c.sensors.some((sensor) => sensor.entityId === entityId)));
+  editor.hidden = false;
+  editor.innerHTML = `<h3>${circuit ? 'Redigér kreds' : 'Opret vandingskreds'}</h3>
+    <form id="watering-circuit-form"><label for="watering-circuit-name">Kredsnavn</label><input id="watering-circuit-name" name="name" maxlength="60" value="${escapeHtml(circuit?.name || '')}" placeholder="fx Terrassepotter" required>
+    <label for="watering-circuit-valve">Vandventil</label><select id="watering-circuit-valve" name="valve" required><option value="">Vælg ventil</option>${wateringCircuitData.valves.map((valve) => `<option value="${escapeHtml(valve.entityId)}" ${circuit?.valve.entityId === valve.entityId ? 'selected' : ''} ${usedBy(valve.entityId) || !valve.available ? 'disabled' : ''}>${escapeHtml(valve.name)} · ${escapeHtml(valve.area)}${usedBy(valve.entityId) ? ' — i anden kreds' : ''}${!usedBy(valve.entityId) && !valve.available ? ' — utilgængelig' : ''}</option>`).join('')}</select>
+    <fieldset><legend>Jordfugtsensorer</legend>${wateringCircuitData.sensors.map((sensor) => {
+    const owner = usedBy(sensor.entityId);
+    const selected = circuit?.sensors.some((s) => s.entityId === sensor.entityId);
+    return `<label class="circuit-sensor-choice"><input type="checkbox" name="sensors" value="${escapeHtml(sensor.entityId)}" ${selected ? 'checked' : ''} ${owner || (!sensor.available && !selected) ? 'disabled' : ''}><span>${escapeHtml(sensor.name)}<small>${escapeHtml(sensor.area)}${owner ? ` — i ${escapeHtml(owner.name)}` : ''}${!owner && !sensor.available ? ' — utilgængelig' : ''}</small></span></label>`;
+  }).join('') || '<p>Ingen klargjorte jordfugtsensorer fundet.</p>'}</fieldset>
+    <div class="circuit-toolbar"><button type="submit">Kontrollér ændring</button><button type="button" data-watering-circuit-cancel>Annullér</button></div></form>`;
+  document.getElementById('watering-circuit-result').hidden = true;
+  editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function planWateringCircuit(form) {
-  const label = form.elements.label.value.trim();
-  const button = form.querySelector('button');
+  const button = form.querySelector('[type="submit"]');
   button.disabled = true;
   try {
-    const plan = await configureWateringCircuit('plan', label);
-    const sensors = plan.sensors.map((sensor) => sensor.name).join(', ');
-    lockWateringCircuitLabel(label);
-    if (plan.mode === 'managed') {
-      showWateringCircuitResult(`Administreret kreds: Ventil: ${plan.valve.name}. Potter: ${sensors}.`, `<button type="button" data-watering-circuit-apply="${escapeHtml(label)}">Reparer</button> <button type="button" data-watering-circuit-remove="${escapeHtml(label)}">Slet</button>`);
-      return;
-    }
-    if (plan.mode === 'legacy') {
-      showWateringCircuitResult(`Manuel kreds: Ventil: ${plan.valve.name}. Potter: ${sensors}. Manuelle pakker: ${plan.legacyPackageFiles.join(', ') || 'ikke fundet'}.`, `<button type="button" data-watering-circuit-migrate="${escapeHtml(label)}">Overtag og migrer</button>`);
-      return;
-    }
-    showWateringCircuitResult(`Ny vandingskreds: Ventil: ${plan.valve.name}. Potter: ${sensors}.`, `<button type="button" data-watering-circuit-apply="${escapeHtml(label)}">Opret</button>`);
+    const draft = {
+      id: wateringCircuitDraft?.id || null,
+      name: form.elements.name.value.trim(),
+      valve: form.elements.valve.value,
+      sensors: Array.from(form.querySelectorAll('[name="sensors"]:checked')).map((input) => input.value),
+    };
+    const plan = await configureWateringCircuit('preview', draft);
+    wateringCircuitDraft = draft;
+    wateringCircuitPlan = plan;
+    form.querySelectorAll('input, select, button').forEach((input) => {
+      input.disabled = true;
+    });
+    renderWateringCircuitConfirmation(plan);
   } catch (error) {
-    showWateringCircuitResult(`Kunne ikke planlægge: ${error.message || error}`);
+    wateringCircuitPlan = null;
+    showWateringCircuitResult(`Kunne ikke kontrollere: ${error.message}`);
+    button.disabled = false;
+  }
+}
+
+function renderWateringCircuitConfirmation(plan) {
+  const result = document.getElementById('watering-circuit-result');
+  result.hidden = false;
+  result.innerHTML = `<div class="circuit-confirm"><h3>${plan.deleting ? 'Fjern' : 'Gem'} ${escapeHtml(plan.name)}?</h3>
+    <p><strong>Ventil:</strong> ${escapeHtml(plan.valve.name)}</p>
+    ${plan.deleting ? '' : `<p><strong>Sensorer efter ændringen:</strong> ${plan.sensors.map((s) => escapeHtml(s.name)).join(', ')}</p>`}
+    ${plan.removed.length ? `<p><strong>Frigøres:</strong> ${plan.removed.map((s) => escapeHtml(s.name)).join(', ')}</p>` : ''}
+    <ul>${plan.effects.map((effect) => `<li>${escapeHtml(effect)}</li>`).join('')}</ul>
+    ${plan.deleting ? `<label class="circuit-sensor-choice"><input type="checkbox" data-watering-circuit-decommissioned ${plan.decommissioned ? 'checked' : ''}><span>Kredsen er fysisk afmonteret og frakoblet vand</span></label>` : ''}
+    ${(plan.blockers || []).length ? `<div class="circuit-warnings"><strong>Ændringen kan ikke gemmes endnu</strong><ul>${plan.blockers.map((message) => `<li>${escapeHtml(message)}</li>`).join('')}</ul></div>` : ''}
+    <div class="circuit-toolbar"><button type="button" data-watering-circuit-confirm ${(plan.blockers || []).length ? 'disabled' : ''}>${plan.deleting ? 'Ja, fjern kredsen' : 'Ja, gem ændringen'}</button><button type="button" data-watering-circuit-cancel>Annullér</button></div></div>`;
+  result.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function removeWateringCircuit(id, decommissioned = false) {
+  wateringCircuitPlan = null;
+  wateringCircuitDraft = { id, deleting: true, decommissioned };
+  document.querySelectorAll('[data-watering-circuit-confirm], [data-watering-circuit-decommissioned]').forEach((input) => {
+    input.disabled = true;
+  });
+  try {
+    const plan = await configureWateringCircuit('preview', wateringCircuitDraft);
+    wateringCircuitPlan = plan;
+    document.getElementById('watering-circuit-editor').hidden = true;
+    renderWateringCircuitConfirmation(plan);
+  } catch (error) {
+    showWateringCircuitResult(`Kunne ikke kontrollere fjernelse: ${error.message}`);
+  }
+}
+
+async function saveWateringCircuit() {
+  if (!wateringCircuitPlan || wateringCircuitSaving || wateringCircuitPlan.blockers?.length) return;
+  wateringCircuitSaving = true;
+  document.querySelectorAll('[data-watering-circuit-confirm], [data-watering-circuit-cancel]').forEach((button) => {
+    button.disabled = true;
+  });
+  try {
+    const result = await configureWateringCircuit(wateringCircuitPlan.deleting ? 'delete' : 'save', { ...wateringCircuitDraft, revision: wateringCircuitPlan.revision, confirm: true });
+    await loadWateringCircuitPage();
+    showWateringCircuitResult(`${result.name} er ${result.removed ? 'fjernet' : 'gemt'}.`);
+  } catch (error) {
+    wateringCircuitPlan = null;
+    showWateringCircuitResult(`Kunne ikke afslutte ændringen: ${error.message}`, '<button type="button" data-watering-circuit-cancel>Tilbage til oversigten</button>');
   } finally {
-    if (!form.hidden) button.disabled = false;
-  }
-}
-
-async function applyWateringCircuit(label) {
-  try {
-    const result = await configureWateringCircuit('apply', label);
-    showWateringCircuitResult(`${result.circuit} er anvendt og Home Assistant genindlæst.`);
-  } catch (error) {
-    showWateringCircuitResult(`Kunne ikke anvende: ${error.message || error}`);
-  }
-}
-
-async function migrateWateringCircuit(label) {
-  // eslint-disable-next-line no-alert
-  if (!window.confirm('Overtag den manuelle kreds? Dens pakke sikkerhedskopieres, værdier overføres, og den deaktiveres først efter den genererede konfiguration er valideret. Labels, enheder og historik ændres ikke.')) return;
-  try {
-    const result = await configureWateringCircuit('migrate', label, true);
-    showWateringCircuitResult(`${result.circuit} er overtaget. Backup: ${result.backups.join(', ')}.`);
-  } catch (error) {
-    showWateringCircuitResult(`Kunne ikke migrere: ${error.message || error}`);
-  }
-}
-
-async function removeWateringCircuit(label) {
-  try {
-    const plan = await configureWateringCircuit('remove', label);
-    const description = `Fjern ${plan.packageFile} og ${plan.profiles.length} profil(er)? Labels, enheder og historik bevares.`;
-    // eslint-disable-next-line no-alert
-    if (!window.confirm(description)) return;
-    await configureWateringCircuit('remove', label, true);
-    showWateringCircuitResult(`${label} er fjernet og Home Assistant genindlæst.`);
-  } catch (error) {
-    showWateringCircuitResult(`Kunne ikke fjerne: ${error.message || error}`);
+    wateringCircuitSaving = false;
   }
 }
 
 function renderContactSensor(sensor) {
-  const error = sensor.error ? `<p class="valve-error">Insights-fejl: ${escapeHtml(sensor.error)}</p>` : '';
-  const duration = formatContactDuration(sensor.openDurationMs);
+  const error = sensor.error ? `<p class="valve-error">Fejl: ${escapeHtml(sensor.error)}</p>` : '';
+  const open = sensor.open === true && sensor.available !== false;
+  const duration = open ? formatContactDuration(sensor.openDurationMs) : null;
+  const status = open ? 'Åben' : 'Ukendt';
 
-  return `<article class="sensor contact active${sensor.error ? ' offline' : ''}">
+  return `<article class="sensor contact${open ? ' active' : ''}${sensor.error ? ' offline' : ''}">
     <div class="topline">
       <div>
         <div class="zone">${escapeHtml(formatZonePath(sensor))}</div>
         <div class="name">${escapeHtml(sensor.name)}${renderSignalIndicator(sensor)}</div>
       </div>
-      <span class="badge action">Åben</span>
+      <span class="badge action">${status}</span>
     </div>
     <div class="moisture contact-duration">
-      <strong>${escapeHtml(duration || 'Åben')}</strong>${duration ? '<span>åben</span>' : ''}
+      <strong>${escapeHtml(duration || status)}</strong>${duration ? '<span>åben</span>' : ''}
     </div>
     <div class="facts">
-      ${sensor.openSince ? `<div class="fact"><strong>${formatTime(sensor.openSince)}</strong>Åben siden</div>` : ''}
+      ${open && sensor.openSince ? `<div class="fact"><strong>${formatTime(sensor.openSince)}</strong>Åben siden</div>` : ''}
       <div class="fact"><strong>${formatValue(sensor.battery, '%')}</strong>Batteri</div>
       <div class="fact"><strong>${sensor.available ? 'Ja' : 'Nej'}</strong>Tilgængelig</div>
     </div>
@@ -1384,12 +1439,12 @@ function renderContactDashboard(data) {
   setUpdatedAt(data.generatedAt);
 
   const content = document.getElementById('content');
-  if (data.totals.active === 0) {
+  if (data.zones.every((zone) => zone.sensors.length === 0)) {
     content.innerHTML = '<section class="empty">Ingen åbne døre, vinduer eller låger.</section>';
     return;
   }
 
-  const errors = data.totals.errors > 0 ? `<section class="error">${data.totals.errors} dør-/vinduesensor(er) kunne ikke hente Insights-historik.</section>` : '';
+  const errors = data.totals.errors > 0 ? `<section class="error">${data.totals.errors} kontaktsensor(er) har ukendt status eller fejl ved hentning af historik.</section>` : '';
   const sensors = data.zones.flatMap((zone) => zone.sensors);
   content.innerHTML = `${errors}<section><div class="grid">${sensors.map(renderContactSensor).join('')}</div></section>`;
 }
@@ -2299,31 +2354,35 @@ document.getElementById('lights-tab').addEventListener('click', loadLightsDashbo
 document.getElementById('energy-tab').addEventListener('click', () => loadEnergyDashboard());
 document.getElementById('vehicle-tab').addEventListener('click', loadVehicleDashboard);
 document.getElementById('content').addEventListener('click', (event) => {
+  if (wateringCircuitSaving && event.target.closest('.watering-circuit-page')) return;
   if (event.target.closest('[data-watering-circuit-page]')) {
     loadWateringCircuitPage();
     return;
   }
   if (event.target.closest('[data-watering-circuit-new]')) {
-    resetWateringCircuitLabel();
+    editWateringCircuit();
     return;
   }
   if (event.target.closest('[data-watering-circuit-back]')) {
     loadWateringDashboard();
     return;
   }
-  const applyCircuit = event.target.closest('[data-watering-circuit-apply]');
-  if (applyCircuit) {
-    applyWateringCircuit(applyCircuit.dataset.wateringCircuitApply);
+  if (event.target.closest('[data-watering-circuit-cancel]')) {
+    if (!wateringCircuitSaving) loadWateringCircuitPage();
     return;
   }
-  const migrateCircuit = event.target.closest('[data-watering-circuit-migrate]');
-  if (migrateCircuit) {
-    migrateWateringCircuit(migrateCircuit.dataset.wateringCircuitMigrate);
+  if (event.target.closest('[data-watering-circuit-confirm]')) {
+    saveWateringCircuit();
     return;
   }
-  const removeCircuit = event.target.closest('[data-watering-circuit-remove]');
+  const editCircuit = event.target.closest('[data-watering-circuit-edit]');
+  if (editCircuit) {
+    editWateringCircuit(editCircuit.dataset.wateringCircuitEdit);
+    return;
+  }
+  const removeCircuit = event.target.closest('[data-watering-circuit-delete]');
   if (removeCircuit) {
-    removeWateringCircuit(removeCircuit.dataset.wateringCircuitRemove);
+    removeWateringCircuit(removeCircuit.dataset.wateringCircuitDelete);
     return;
   }
   const replayStart = event.target.closest('[data-replay-start]');
@@ -2447,6 +2506,10 @@ document.getElementById('content').addEventListener('click', (event) => {
   loaders[card.dataset.view]?.();
 });
 document.getElementById('content').addEventListener('change', (event) => {
+  if (event.target.matches('[data-watering-circuit-decommissioned]') && !wateringCircuitSaving && wateringCircuitDraft?.id) {
+    removeWateringCircuit(wateringCircuitDraft.id, event.target.checked);
+    return;
+  }
   if (event.target.id === 'replay-mode') updateReplayModeFields();
   if (event.target.closest('#replay-profile-form')) replayConfigDirty = true;
 });
@@ -2478,6 +2541,10 @@ document.getElementById('threshold-overlay').addEventListener('click', (event) =
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    if (activeView === 'circuits' && (wateringCircuitDraft || wateringCircuitSaving)) {
+      updateRefreshNote();
+      return;
+    }
     if (activeView === 'replay' && !replayRunning) {
       updateRefreshNote();
       return;

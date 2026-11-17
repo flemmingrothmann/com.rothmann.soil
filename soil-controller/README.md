@@ -4,13 +4,23 @@ This service owns soil ingest and automatic setup of manual soil alarms. Home As
 
 It uses a persistent write-ahead queue in its Docker volume. A Z2M observation is written to disk before Wingman ingest is attempted and is removed only after Wingman returns `202`. Retry starts at 15 seconds and backs off to five minutes. Z2M's cached `state.json` bootstraps the latest state after a bridge restart; historical events emitted while both Z2M and the bridge are down cannot be reconstructed.
 
-## Label-Driven Watering Circuits
+## Watering Circuit Administration
 
-The Vanding dashboard can plan, apply and remove HA watering circuits from one HA label. Discovery uses HA's authenticated WebSocket registries and REST state API, never HA `.storage`.
+The current UI/native-HA administration and API are documented in
+[Watering circuit administration](../docs/watering-circuit-administration.md).
+Legacy watering helpers have been migrated/cleaned up; see
+[HA UI maintenance](../docs/home-assistant-watering-ui.md). Do not redeploy the
+reference YAML packages. New circuit artifacts use the scoped HA category
+`Vandingskredse`; manual-soil setup uses `Manuel jordfugt`, preserving user choices.
+The old label-input apply/migrate/remove endpoints are disabled. New
+circuits use UI-managed helpers and per-automation config endpoints; existing
+helper values and unrelated live HA automations are preserved.
 
-- A label must resolve to exactly one `switch` valve and one or more moisture sensors.
-- Apply writes only a `# Managed by soil-controller` YAML package, updates matching controller profiles and reloads HA.
-- Remove first returns a dry-run. The UI requires confirmation, then removes only that generated package and its generated profile fields. HA labels, devices and history remain unchanged.
+The Vanding dashboard lists circuits and lets users choose a name, one physical
+valve and one or more moisture sensors. Discovery uses HA's authenticated
+WebSocket registries and REST state API. Changes require a fresh preview and
+confirmation, with gates held during the transaction. Helper references and
+values are retained; setup does not create packages.
 
 ## Zone Mapping
 
@@ -34,12 +44,14 @@ Verify with `node --test tests/soilIdentity.test.js` and an actual MQTT observat
 New Zigbee devices exposing `soil_moisture` are reconciled against HA's registry by IEEE, without a model whitelist or custom Zigbee converter. Once HA discovery is ready, the adapter creates UI-managed threshold/alarm/cooldown helpers and one editable blueprint instance. This runs on inventory updates and retries approximately once per minute.
 
 - Default threshold: **25 %**; **0 disables**. Existing thresholds (including zero), helper values, notification cooldowns and disabled automation states are never reset to defaults.
+- Newly enrolled manual sensors with writable `soil_calibration` get **0 % once**, through their IEEE-matched HA number entity. Pending discovery/unavailability survives adapter restarts. Existing profiles/HA manual alarms are not recalibrated; later user changes are preserved. An already-zero value causes no write. The profile marker records successful HA dispatch, not physical-device acknowledgement; confirm the sensor's reported calibration after pairing.
 - Alarm on at/below the threshold; off at threshold + 6 percentage points, capped at 95 %. HA remains the only alarm evaluator.
 - Existing `manual-soil-moisture-alarm` instances are extended, not duplicated. Existing notification ids/cooldowns are retained. Future instances use a stable IEEE-based key.
 - Helpers are created through HA WebSocket CRUD, not YAML packages. Numeric values are set once on creation; helper ids, history ids and notification keys survive visual renames.
+- Helper and individual manual-automation **display names** follow the HA MQTT device's `name_by_user`, falling back to the current Z2M friendly name. Existing generated IEEE/tag names are migrated; future device renames propagate on the normal reconciliation (about one minute). Explicit custom helper/automation names win. This uses entity-registry name overrides, not automation-config rewrites/reloads/triggers; no values or identities are reset. See [soil display names](../docs/soil-display-names.md).
 - Explicit soil profiles/watering-alarm owners and `wingman-ignore` devices are excluded from onboarding. No watering circuit, valve command or HA mobile-app list is inferred or changed.
 - HA publishes software control state to the profile's `homeassistant/soil/.../control` topic. Only changes are queued, with `source_system=home_assistant`; raw physical readings retain Z2M provenance.
 - The completed profile is persisted before publishing software capabilities. The generic ingest adapter observes the shared profile ownership file and must not overwrite domain metadata when draining old queued observations.
 - A deleted/unavailable existing helper is reported, not replaced with a fresh default. Repair its binding in the HA automation UI. User-created automation/helper settings remain authoritative.
 
-Tests: `node --test tests/soilProvisioning.test.js` plus `home-assistant/tests/test_software_soil_alarm.py` and the notification cooldown tests. HA blueprint changes must be deployed before starting a new adapter version that uses the additional inputs. Preserve all unrelated live automations and private configuration.
+Tests: `node --test tests/soilProvisioning.test.js tests/soilCalibration.test.js tests/soilNames.test.js` plus `home-assistant/tests/test_software_soil_alarm.py` and the notification cooldown tests. HA blueprint changes must be deployed before starting a new adapter version that uses the additional inputs. Preserve all unrelated live automations and private configuration.

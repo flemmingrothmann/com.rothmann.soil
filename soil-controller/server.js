@@ -8,6 +8,7 @@ const YAML = require('yaml');
 const { classifyCircuitMode, generatedHelperEntities } = require('./wateringCircuitMode');
 const { ZigbeeIdentityRoutes, cachedStateByIeee, profileMatchesDevice, observeProfileTopics } = require('./zigbeeIdentity');
 const { SoilProvisioner, softwareControlEvents } = require('./soilProvisioning');
+const { WateringAdmin } = require('./wateringAdmin');
 
 const MQTT_URL = process.env.MQTT_URL || 'mqtt://mosquitto:1883';
 const MQTT_USERNAME = process.env.MQTT_USERNAME || '';
@@ -599,7 +600,7 @@ function toEvent(profile, deviceId, capability, value, timestamp, sourceEventId,
 }
 
 async function syncProfiles() {
-  await Promise.all(Object.entries(profiles).map(async ([deviceId, profile]) => {
+  await Promise.all(Object.entries(profiles).filter(([, profile]) => profile.type !== 'watering_valve' && profile.haThresholdEntity).map(async ([deviceId, profile]) => {
     try {
       profile.threshold = await readProfileThreshold(profile);
     } catch (error) {
@@ -704,6 +705,14 @@ async function main() {
     if (error.code !== 'ENOENT') throw error;
     routes = new ZigbeeIdentityRoutes();
   }
+  const circuitAdmin = new WateringAdmin({ profiles, ws: requestHomeAssistantWebSocket, request: requestHomeAssistant,
+    readAutomations: () => YAML.parse(fs.readFileSync(HOME_ASSISTANT_AUTOMATIONS_FILE, 'utf8')) || [],
+    persist: persistProfiles, changed: syncProfiles,
+    backup(snapshot) {
+      const filename = path.join(path.dirname(QUEUE_FILE), 'watering-admin-recovery.json');
+      fs.writeFileSync(`${filename}.tmp`, JSON.stringify(snapshot), { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(`${filename}.tmp`, filename);
+    } });
   http.createServer(async (request, response) => {
     try {
       if (request.headers.authorization !== `Bearer ${INGEST_TOKEN}`) {
@@ -711,6 +720,25 @@ async function main() {
         return;
       }
       const match = request.url.match(/^\/api\/soil-sensors\/([^/]+)\/threshold$/);
+      if (request.method === 'GET' && request.url === '/api/watering-circuits') {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(await circuitAdmin.list()));
+        return;
+      }
+      const adminAction = request.url.match(/^\/api\/watering-circuits\/(preview|save|delete)$/)?.[1];
+      if (request.method === 'POST' && adminAction) {
+        let body = '';
+        for await (const chunk of request) {
+          body += chunk;
+          if (body.length > 16384) throw new Error('Kredsændringen er for stor.');
+        }
+        const parsed = JSON.parse(body || '{}');
+        const result = adminAction === 'preview' ? (await circuitAdmin.preview(parsed, parsed.deleting === true)).plan : await circuitAdmin.commit(parsed, adminAction === 'delete');
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
+        return;
+      }
+      if (request.method === 'POST' && /^\/api\/watering-circuits\/(apply|migrate|remove)$/.test(request.url)) {
+        throw new Error('Brug den nye kredsadministration og kontrollér ændringen før bekræftelse.');
+      }
       if (request.method === 'POST' && request.url === '/api/watering-circuits/plan') {
         let body = '';
         for await (const chunk of request) body += chunk;
@@ -809,6 +837,7 @@ async function main() {
   let syncingMetadata = false;
   let refreshRequested = false;
   async function refreshMetadata() {
+    if (circuitAdmin.busy) { refreshRequested = true; return; }
     if (syncingMetadata) { refreshRequested = true; return; }
     syncingMetadata = true;
     try {

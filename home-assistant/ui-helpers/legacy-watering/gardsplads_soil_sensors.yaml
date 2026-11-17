@@ -1,3 +1,4 @@
+# Reference/test defaults only. Live helpers are managed in the HA UI.
 input_number:
   garage_vaegpotte_water_threshold:
     name: Garage vægpotte jordfugtgrænse

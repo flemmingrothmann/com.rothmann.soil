@@ -1,10 +1,10 @@
 blueprint:
-  name: Soil moisture alarm
+  name: Jordfugtalarm til automatisk vandingskreds
   description: >-
-    Maintains a canonical watering alarm from a soil moisture sensor. The alarm
-    turns on at or below the configured threshold and turns off only after the
-    moisture reaches the threshold plus a fixed 6 percentage point hysteresis,
-    capped at 95%.
+    Danner vandingsbehov ud fra jordfugt og grænseværdi. Bruges af en automatisk
+    vandingskreds; styrer ikke selv ventilen. Alarmen aktiveres ved eller under
+    grænsen og fjernes ved grænsen + 6 procentpoint, dog højst 95 %. En grænse på 0
+    deaktiverer alarmen.
   domain: automation
   input:
     moisture_sensor:
@@ -61,7 +61,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ moisture <= lower and is_state(water_alarm, 'off') }}"
+            value_template: "{{ lower > 0 and moisture <= lower and is_state(water_alarm, 'off') }}"
         sequence:
           - action: input_boolean.turn_on
             target:
@@ -73,7 +73,7 @@ action:
               retain: true
       - conditions:
           - condition: template
-            value_template: "{{ moisture >= upper and is_state(water_alarm, 'on') }}"
+            value_template: "{{ (lower == 0 or moisture >= upper) and is_state(water_alarm, 'on') }}"
         sequence:
           - action: input_boolean.turn_off
             target:

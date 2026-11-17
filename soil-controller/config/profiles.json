@@ -17,8 +17,7 @@
     "haThresholdEntity": "input_number.myggeplante_water_threshold",
     "zigbeeTopic": "Myggeplante",
     "samplingSeconds": 90,
-    "alarmTopic": "homeassistant/soil/myggeplante/alarm",
-    "wateringCircuit": "vanding_terasse_potter"
+    "alarmTopic": "homeassistant/soil/myggeplante/alarm"
   },
   "0xa4c138f35b60c6a1": {
     "name": "Terrasse Vægpotte",
@@ -28,24 +27,6 @@
     "haThresholdEntity": "input_number.terrasse_vaegpotte_water_threshold",
     "zigbeeTopic": "Terrasse Vægpotte",
     "samplingSeconds": 90,
-    "alarmTopic": "homeassistant/soil/terrasse_vaegpotte/alarm",
-    "wateringCircuit": "vanding_terasse_potter"
-  },
-  "0xe456acfffe60f0b5": {
-    "name": "Vandventil Terasse",
-    "zoneId": "terrasse",
-    "zoneName": "Terrasse",
-    "zigbeeTopic": "Vandventil Terasse",
-    "type": "watering_valve",
-    "wateringCircuit": "vanding_terasse_potter",
-    "haWatering": {
-      "cycleDurationEntity": "input_number.terrasse_potter_cycle_duration",
-      "pauseDurationEntity": "input_number.terrasse_potter_pause_duration",
-      "maximumCyclesEntity": "input_number.terrasse_potter_maximum_cycles",
-      "cycleNumberEntity": "input_number.terrasse_potter_cycle_number",
-      "statusEntity": "input_select.terrasse_potter_watering_status",
-      "errorEntity": "input_boolean.terrasse_potter_watering_error",
-      "forbiddenEntity": "input_boolean.terrasse_potter_watering_forbidden"
-    }
+    "alarmTopic": "homeassistant/soil/terrasse_vaegpotte/alarm"
   }
 }

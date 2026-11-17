@@ -2,6 +2,8 @@
 
 Home Assistant runs as a Docker container on `hubert` and uses host networking for local discovery.
 
+The runtime is pinned to **2026.11.1**. Backup, compatibility checks and upgrade verification are recorded in [the HA/Z2M upgrade record](../docs/hubert-ha-z2m-upgrade-review.md). HACS migrated to the built-in Marketplace in this version; existing integrations and settings were retained.
+
 ## Start
 
 ```sh
