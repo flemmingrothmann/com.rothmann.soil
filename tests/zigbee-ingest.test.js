@@ -12,6 +12,7 @@ const { ZigbeeObserver } = require("../home-assistant-ingest-service/zigbee-obse
 const { PersistentQueue, readJson, writeJson } = require("../home-assistant-ingest-service/storage");
 const { createDelivery, drainQueue } = require("../home-assistant-ingest-service/delivery");
 const { getHomeAssistantLightTarget } = require("../dashboard/server");
+const { validateExternalDeviceInventory, reconcileExternalDeviceInventory } = require("../ingest-service/externalDeviceInventory");
 
 const ieee = "0x1234567890abcdef";
 const time = "2026-11-11T12:00:00.000Z";
@@ -166,6 +167,8 @@ test("HA outage and adapter restart preserve metadata, history ids and HA-event 
   assert.equal(observer.suppressHa("light.group"), false);
   const restarted = new ZigbeeObserver({ directory, enqueue: (item) => envelopes.push(item), now: () => time });
   restarted.message("zigbee2mqtt/MQTT name", Buffer.from(JSON.stringify({ state: "OFF", last_seen: time })));
+  assert.equal(restarted.raw.length, 1);
+  restarted.message("zigbee2mqtt/bridge/devices", Buffer.from(JSON.stringify([bridge])));
   assert.equal(envelopes.at(-1).events[0].homey_device_id, "light.office");
   assert.equal(envelopes.at(-1).device.zoneName, "Kontor");
   assert.equal(restarted.suppressHa("light.office"), true);
@@ -180,12 +183,13 @@ test("HA metadata changes sync without inventing observations; entity rename ver
   data.entities[0].entity_id = "light.renamed";
   observer.now = () => "2026-11-11T13:00:00.000Z";
   observer.snapshot(registryMetadata(data));
-  assert.equal(envelopes.at(-1).device.name, "Nyt navn");
-  assert.equal(envelopes.at(-1).device.zoneName, "Nyt område");
-  assert.equal(envelopes.at(-1).device.id, "light.office");
-  assert.deepEqual(envelopes.at(-1).events, []);
-  assert.equal(envelopes.at(-1).route.targetDeviceId, "light.renamed");
-  assert.notEqual(envelopes.at(-1).route.validFrom, originalRoute.validFrom);
+  const inventory = envelopes.at(-1).inventorySnapshot;
+  assert.equal(inventory.devices[0].name, "Nyt navn");
+  assert.equal(inventory.devices[0].zoneName, "Nyt område");
+  assert.equal(inventory.devices[0].id, "light.office");
+  assert.equal(inventory.devices[0].inventorySource, "zigbee2mqtt");
+  assert.equal(inventory.routes[0].targetDeviceId, "light.renamed");
+  assert.notEqual(inventory.routes[0].validFrom, originalRoute.validFrom);
   const count = envelopes.length;
   observer.snapshot(registryMetadata(data));
   assert.equal(envelopes.length, count);
@@ -210,8 +214,29 @@ test("first boot spools observations durably until HA metadata arrives", (t) => 
   assert.equal(envelopes.length, 0);
   const restarted = new ZigbeeObserver(options);
   restarted.snapshot(registryMetadata(registry()));
+  assert.equal(restarted.raw.length, 1);
+  restarted.message("zigbee2mqtt/bridge/devices", Buffer.from(JSON.stringify([bridge])));
   assert.equal(restarted.raw.length, 0);
   assert.equal(envelopes.at(-1).events[0].homey_device_id, "light.office");
+});
+
+test("fresh Z2M inventory emits scoped reconciliation and drops removed cached observations", (t) => {
+  const protectedIeee = "0xabcdefabcdefabcd";
+  const { observer, envelopes } = setup(t, { [protectedIeee]: { name: "Soil-owned" } });
+  observer.message("zigbee2mqtt/MQTT name", Buffer.from('{"state":"ON"}'));
+  assert.ok(observer.cache.values[ieee]);
+
+  assert.throws(() => observer.message("zigbee2mqtt/bridge/devices", Buffer.from("[]")), /Invalid Z2M device inventory/);
+  const replacement = { ...bridge, ieee_address: "0xfedcba0987654321", friendly_name: "Replacement" };
+  observer.message("zigbee2mqtt/bridge/devices", Buffer.from(JSON.stringify([replacement])));
+  const snapshot = envelopes.at(-1).inventorySnapshot;
+  assert.deepEqual(snapshot.devices.map((device) => device.id), [replacement.ieee_address]);
+  assert.deepEqual(snapshot.protectedDeviceIds, [protectedIeee]);
+  assert.equal(Object.hasOwn(observer.cache.values, ieee), false);
+  assert.equal(observer.cache.identities[ieee].id, "light.office");
+  const count = envelopes.length;
+  observer.message("zigbee2mqtt/bridge/devices", Buffer.from(JSON.stringify([replacement])));
+  assert.equal(envelopes.length, count);
 });
 
 test("new unplaced devices retain IEEE identity when HA metadata arrives later", (t) => {
@@ -281,6 +306,65 @@ test("failed delivery retains durable queue, only 202 acknowledges ingestion", a
   await drainQueue(queue, deliver);
   assert.equal(queue.length, 0);
   assert.equal(calls.filter((call) => call.url.endsWith("/api/sync/external-devices")).length, 1);
+});
+
+test("inventory delivery is retained until reconciliation returns 202", async (t) => {
+  const queue = new PersistentQueue(path.join(temporary(t), "inventory-queue.json"));
+  queue.push({ inventorySnapshot: { inventorySource: "zigbee2mqtt", devices: [], protectedDeviceIds: [], routes: [] } });
+  let status = 503;
+  const calls = [];
+  const deliver = createDelivery({ url: "http://wingman", token: "test", fetchImpl: async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return { status, ok: status < 300, text: async () => "unavailable" };
+  } });
+  await assert.rejects(drainQueue(queue, deliver), /503: unavailable/);
+  assert.equal(queue.length, 1);
+  status = 202;
+  await drainQueue(queue, deliver);
+  assert.equal(queue.length, 0);
+  assert.equal(calls[0].url, "http://wingman/api/sync/external-device-inventory");
+});
+
+test("external inventory validation rejects unsafe or ambiguous snapshots", () => {
+  const base = { inventorySource: "zigbee2mqtt", devices: [], protectedDeviceIds: [], routes: [] };
+  assert.deepEqual(validateExternalDeviceInventory(base).deviceIds, []);
+  assert.throws(() => validateExternalDeviceInventory({ ...base, inventorySource: "soil-controller" }), /Unsupported/);
+  assert.throws(() => validateExternalDeviceInventory({ ...base, devices: [{ id: "a", name: "A" }] }), /matching inventorySource/);
+  assert.throws(() => validateExternalDeviceInventory({ ...base, devices: [
+    { id: "a", name: "A", inventorySource: "zigbee2mqtt" },
+    { id: "a", name: "Again", inventorySource: "zigbee2mqtt" },
+  ] }), /Duplicate/);
+  assert.throws(() => validateExternalDeviceInventory({ ...base, routes: [{
+    sourceSystem: "zigbee2mqtt", sourceDeviceId: "missing", targetSystem: "home_assistant", targetDeviceId: "light.x",
+  }] }), /Invalid route/);
+});
+
+test("external inventory cleanup is source-scoped, closes routes and preserves events", async () => {
+  const inventory = validateExternalDeviceInventory({
+    inventorySource: "zigbee2mqtt",
+    devices: [{ id: "active", name: "Active Z2M", inventorySource: "zigbee2mqtt" }],
+    protectedDeviceIds: ["soil-id"],
+    routes: [],
+  });
+  const queries = [];
+  const client = { query: async (sql, params) => {
+    queries.push({ sql, params });
+    if (sql.includes("select distinct external.id")) return { rows: [{ id: "removed-z2m" }] };
+    return { rowCount: sql.includes("update device_route") ? 1 : sql.includes("delete from state_current") ? 3 : 1, rows: [] };
+  } };
+  const upserts = [];
+  const result = await reconcileExternalDeviceInventory(client, inventory, async (_client, device) => upserts.push(device.id));
+  assert.deepEqual(upserts, ["active"]);
+  assert.deepEqual(result, { devices: 1, removed: 1, currentStatesRemoved: 3, routesClosed: 1 });
+  const staleQuery = queries.find((query) => query.sql.includes("select distinct external.id"));
+  assert.match(staleQuery.sql, /external\.payload->>'inventorySource' = \$1/);
+  assert.deepEqual(staleQuery.params.slice(1), [["active"], ["soil-id"]]);
+  assert.match(queries.find((query) => query.sql.includes("update device_route")).sql, /valid_to = greatest/);
+  const stateCleanup = queries.find((query) => query.sql.includes("delete from state_current"));
+  assert.match(stateCleanup.sql, /current\.source_system = \$2/);
+  assert.match(stateCleanup.sql, /from homey_device homey/);
+  assert.ok(queries.some((query) => query.sql.includes("delete from external_device")));
+  assert.equal(queries.some((query) => query.sql.includes("delete from ingest_event")), false);
 });
 
 test("a queued generic observation cannot overwrite metadata after the soil adapter takes ownership", async () => {

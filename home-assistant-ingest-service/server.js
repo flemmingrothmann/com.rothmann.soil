@@ -37,7 +37,7 @@ function scheduleRetry() {
 }
 
 async function flushQueue() {
-  if (flushing || queue.length === 0) return;
+  if (flushing || queue.length === 0 || (zigbee && !zigbee.inventoryFresh)) return;
   flushing = true;
   try {
     await drainQueue(queue, deliver);
@@ -142,12 +142,16 @@ const client = mqtt.connect(MQTT_URL, {
   username: MQTT_USERNAME,
   password: MQTT_PASSWORD,
 });
+let inventorySubscribed = false;
 client.on("connect", () => {
+  if (zigbee) {
+    zigbee.invalidateInventory();
+    inventorySubscribed = false;
+  }
   client.subscribe("homeassistant/wingman/light/state");
   if (zigbee) client.subscribe("zigbee2mqtt/bridge/devices", { qos: 1 });
   flushQueue().catch((error) => console.error(error.message || error));
 });
-let inventorySubscribed = false;
 client.on("message", (topic, message, packet) => {
   try {
     if (topic === "homeassistant/wingman/light/state") enqueue(JSON.parse(message.toString()));

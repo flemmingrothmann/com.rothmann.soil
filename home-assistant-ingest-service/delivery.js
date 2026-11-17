@@ -12,6 +12,18 @@ function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () =
       throw new Error(`Wingman ${pathname} returned ${response.status}: ${await response.text()}`);
   }
   return async function deliver(envelope) {
+    if (envelope.inventorySnapshot) {
+      const snapshot = envelope.inventorySnapshot;
+      await request("/api/sync/external-device-inventory", "POST", snapshot, true);
+      for (const route of snapshot.routes || []) {
+        const signature = JSON.stringify(route);
+        if (routes.has(signature)) continue;
+        await request("/api/replay/routes", "PUT", route, false);
+        routes.add(signature);
+      }
+      return;
+    }
+
     const { device, events } = envelope;
     const signature = JSON.stringify(device);
     if (shouldSyncDevice(device) && devices.get(device.id) !== signature) {

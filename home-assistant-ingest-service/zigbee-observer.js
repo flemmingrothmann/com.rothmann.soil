@@ -1,6 +1,7 @@
 "use strict";
 
 const { randomUUID } = require("crypto");
+const fs = require("fs");
 const { readJson, writeJson, PersistentQueue } = require("./storage");
 const { startRegistryObserver } = require("./registry");
 const { deviceModel, observationBatch, isDirectLight, unavailableBatch } = require("./zigbee");
@@ -15,7 +16,8 @@ class ZigbeeObserver {
     this.now = now;
     this.models = {};
     this.cache.availability ||= {};
-    this.syncSignatures = new Map();
+    this.inventoryFresh = false;
+    this.inventorySignature = "";
     this.stats = { received: 0, emitted: 0, suppressedHa: 0, haConnected: false };
     this.rebuild();
   }
@@ -24,6 +26,10 @@ class ZigbeeObserver {
 
   profiles() {
     return this.profilesFile ? readJson(this.profilesFile, {}) : {};
+  }
+
+  invalidateInventory() {
+    this.inventoryFresh = false;
   }
 
   rebuild() {
@@ -62,19 +68,42 @@ class ZigbeeObserver {
   }
 
   syncMetadata() {
+    if (!this.inventoryFresh || !this.cache.syncedAt) return;
+    if (this.profilesFile && !fs.existsSync(this.profilesFile)) return;
+    const profiles = this.profiles();
+    const devices = [];
+    const routes = [];
     for (const model of Object.values(this.models)) {
       if (model.ignored) continue;
       const device = this.publicDevice(model);
-      const signature = JSON.stringify({ device, route: model.route });
-      if (this.syncSignatures.get(model.ieee) === signature) continue;
-      this.enqueue({ device, events: [], route: model.route });
-      this.syncSignatures.set(model.ieee, signature);
+      devices.push(device);
+      if (model.route) routes.push(model.route);
     }
+    devices.sort((left, right) => left.id.localeCompare(right.id));
+    routes.sort((left, right) => left.sourceDeviceId.localeCompare(right.sourceDeviceId));
+    const protectedDeviceIds = new Set(Object.keys(profiles));
+    for (const bridge of this.cache.bridges) {
+      const ieee = bridge.ieee_address?.toLowerCase();
+      if (bridge.type === "Coordinator" || !ieee || this.models[ieee]) continue;
+      protectedDeviceIds.add(ieee);
+      const previous = this.cache.identities[ieee];
+      if (previous?.id) protectedDeviceIds.add(previous.id);
+    }
+    const snapshot = {
+      inventorySource: "zigbee2mqtt",
+      devices,
+      protectedDeviceIds: [...protectedDeviceIds].sort(),
+      routes,
+    };
+    const signature = JSON.stringify(snapshot);
+    if (signature === this.inventorySignature) return;
+    this.enqueue({ inventorySnapshot: snapshot });
+    this.inventorySignature = signature;
   }
 
   publicDevice(model) {
     const { features, ignoredProperties, ignored, invert, route, ...device } = model;
-    return device;
+    return { ...device, inventorySource: "zigbee2mqtt" };
   }
 
   suppressHa(entityId) {
@@ -86,8 +115,19 @@ class ZigbeeObserver {
   message(topic, raw, packet = {}) {
     if (topic === "zigbee2mqtt/bridge/devices") {
       const bridges = JSON.parse(raw.toString());
-      if (!Array.isArray(bridges)) throw new Error("Invalid Z2M device inventory");
+      if (!Array.isArray(bridges) || bridges.length === 0) throw new Error("Invalid Z2M device inventory");
+      const ieeeAddresses = bridges.map((device) => device?.ieee_address?.toLowerCase());
+      if (ieeeAddresses.some((ieee) => !/^0x[0-9a-f]{16}$/.test(ieee)) || new Set(ieeeAddresses).size !== ieeeAddresses.length)
+        throw new Error("Invalid or duplicate IEEE address in Z2M device inventory");
+      const previousIeees = new Set(this.cache.bridges.map((device) => device.ieee_address?.toLowerCase()).filter(Boolean));
+      const nextIeees = new Set(ieeeAddresses);
+      for (const ieee of previousIeees) {
+        if (nextIeees.has(ieee)) continue;
+        delete this.cache.values[ieee];
+        delete this.cache.availability[ieee];
+      }
       this.cache.bridges = bridges;
+      this.inventoryFresh = true;
       this.rebuild();
       this.save();
       this.syncMetadata();
@@ -112,7 +152,7 @@ class ZigbeeObserver {
   }
 
   drain() {
-    if (!this.cache.syncedAt) return; // First boot waits for HA once; restarts use the durable cache.
+    if (!this.cache.syncedAt || !this.inventoryFresh) return; // Reconnects need fresh Z2M inventory before replaying the durable queue.
     while (this.raw.length) {
       const item = this.raw.first;
       const model = this.models[item.ieee];

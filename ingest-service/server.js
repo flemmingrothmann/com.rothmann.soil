@@ -4,6 +4,10 @@
 
 const http = require("http");
 const { Pool } = require("pg");
+const {
+  validateExternalDeviceInventory,
+  reconcileExternalDeviceInventory,
+} = require("./externalDeviceInventory");
 
 const PORT = Number(process.env.PORT || 8788);
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
@@ -1698,6 +1702,50 @@ async function handleHomeySync(request, response) {
   });
 }
 
+async function upsertExternalDevice(client, device) {
+  const zoneId = device.zoneId || "external";
+  const zoneName = device.zoneName || "Ukendt zone";
+  await client.query(
+    `
+      insert into external_zone (id, name, payload, synced_at)
+      values ($1, $2, $3::jsonb, now())
+      on conflict (id) do update set
+        name = excluded.name, payload = excluded.payload, synced_at = excluded.synced_at
+    `,
+    [zoneId, zoneName, JSON.stringify({ id: zoneId, name: zoneName })],
+  );
+  await client.query(
+    `
+      insert into external_device (id, name, zone_id, driver_id, device_class, available, capabilities, payload, synced_at)
+      values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, now())
+      on conflict (id) do update set
+        name = excluded.name,
+        zone_id = excluded.zone_id,
+        driver_id = excluded.driver_id,
+        device_class = excluded.device_class,
+        available = excluded.available,
+        capabilities = excluded.capabilities,
+        payload = case
+          when excluded.payload ? 'inventorySource' then excluded.payload
+          when external_device.payload ? 'inventorySource' then
+            jsonb_set(excluded.payload, '{inventorySource}', external_device.payload->'inventorySource', true)
+          else excluded.payload
+        end,
+        synced_at = excluded.synced_at
+    `,
+    [
+      device.id,
+      device.name,
+      zoneId,
+      device.driverId || null,
+      device.class || null,
+      device.available !== false,
+      Array.isArray(device.capabilities) ? device.capabilities : [],
+      JSON.stringify(device),
+    ],
+  );
+}
+
 async function handleExternalDeviceSync(request, response) {
   if (!isAuthorized(request)) {
     sendError(response, 401, "Unauthorized");
@@ -1711,35 +1759,7 @@ async function handleExternalDeviceSync(request, response) {
     await client.query("begin");
     for (const device of devices) {
       if (!device?.id || !device?.name) continue;
-      const zoneId = device.zoneId || "external";
-      const zoneName = device.zoneName || "Ukendt zone";
-      await client.query(
-        `
-        insert into external_zone (id, name, payload, synced_at)
-        values ($1, $2, $3::jsonb, now())
-        on conflict (id) do update set name = excluded.name, payload = excluded.payload, synced_at = excluded.synced_at
-      `,
-        [zoneId, zoneName, JSON.stringify({ id: zoneId, name: zoneName })],
-      );
-      await client.query(
-        `
-        insert into external_device (id, name, zone_id, driver_id, device_class, available, capabilities, payload, synced_at)
-        values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, now())
-        on conflict (id) do update set name = excluded.name, zone_id = excluded.zone_id,
-          driver_id = excluded.driver_id, device_class = excluded.device_class, available = excluded.available,
-          capabilities = excluded.capabilities, payload = excluded.payload, synced_at = excluded.synced_at
-      `,
-        [
-          device.id,
-          device.name,
-          zoneId,
-          device.driverId || null,
-          device.class || null,
-          device.available !== false,
-          Array.isArray(device.capabilities) ? device.capabilities : [],
-          JSON.stringify(device),
-        ],
-      );
+      await upsertExternalDevice(client, device);
     }
     await client.query("commit");
   } catch (error) {
@@ -1749,6 +1769,28 @@ async function handleExternalDeviceSync(request, response) {
     client.release();
   }
   sendJson(response, 202, { ok: true, devices: devices.length });
+}
+
+async function handleExternalDeviceInventorySync(request, response) {
+  if (!isAuthorized(request)) {
+    sendError(response, 401, "Unauthorized");
+    return;
+  }
+  const body = await readRequestBody(request);
+  const inventory = validateExternalDeviceInventory(body ? JSON.parse(body) : {});
+  const client = await pool.connect();
+  let result;
+  try {
+    await client.query("begin");
+    result = await reconcileExternalDeviceInventory(client, inventory, upsertExternalDevice);
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+  sendJson(response, 202, { ok: true, inventorySource: inventory.inventorySource, ...result });
 }
 
 async function getReplayRoute(requestUrl, response) {
@@ -2448,6 +2490,13 @@ const server = http.createServer(async (request, response) => {
       url.pathname === "/api/sync/external-devices"
     ) {
       await handleExternalDeviceSync(request, response);
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/sync/external-device-inventory"
+    ) {
+      await handleExternalDeviceInventorySync(request, response);
       return;
     }
     if (

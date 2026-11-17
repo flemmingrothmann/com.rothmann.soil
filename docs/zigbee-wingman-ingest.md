@@ -34,6 +34,14 @@ The adapter volume contains `zigbee-metadata.json`, `zigbee-pending.json`, `wing
 - Delivery is **at least once**, not exactly once: a lost HTTP response/crash across acknowledgements can duplicate events because the existing ingest API does not deduplicate source ids. Source ids are retained for diagnosis.
 - MQTT QoS cannot recover all history while the adapter/broker itself is down. Retained state only recovers the latest cached value, not intermediate observations. HA downtime alone does not stop direct observation.
 
+## Z2M inventory reconciliation
+
+- On each MQTT connection the adapter waits for a fresh, validated `zigbee2mqtt/bridge/devices` inventory before replaying queued observations. Empty, malformed or duplicate-IEEE inventories are rejected; stale cached inventory is never used to authorize deletion.
+- The adapter durably queues a complete snapshot to `POST /api/sync/external-device-inventory`. The endpoint accepts only `inventorySource: "zigbee2mqtt"`; it upserts current devices and removes missing Z2M-owned external-device metadata/current state in one transaction.
+- Soil-profile IDs and currently inventoried devices that cannot be safely mapped are sent as protected IDs. Cleanup also checks ownership metadata/legacy Z2M driver and route records, and current-state deletion requires Z2M provenance. Homey state is protected.
+- Active routes belonging to removed Z2M devices are closed. Historical `ingest_event` rows are never deleted. Route updates for devices still present continue through the existing replay-route API.
+- Queue acknowledgement requires HTTP 202. Failed API delivery retains the complete snapshot for retry; repeating a snapshot is safe. This endpoint is exclusively for complete Z2M inventories—partial device updates must continue using `POST /api/sync/external-devices`.
+
 ## Deploy and verify
 
 Preserve existing private `.env` files and named volumes. Enable `ZIGBEE_INGEST_ENABLED=true` in the HA ingest service's `.env`. The compose file mounts the soil profiles directory read-only; changes to ownership therefore do not require a copied profile list.
