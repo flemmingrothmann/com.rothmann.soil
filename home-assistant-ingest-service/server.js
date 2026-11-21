@@ -4,7 +4,7 @@ const mqtt = require("mqtt");
 const { ENERGY_ENTITIES, energyObservation, startEnergyObserver } = require("./energy");
 const { PersistentQueue, readJson, writeJson } = require("./storage");
 const { ZigbeeObserver } = require("./zigbee-observer");
-const { createDelivery, drainQueue } = require("./delivery");
+const { createDelivery, drainQueue, resolveSoilOwnedInventorySnapshot } = require("./delivery");
 
 const MQTT_URL = process.env.MQTT_URL || "mqtt://mosquitto:1883";
 const MQTT_USERNAME = process.env.MQTT_USERNAME || "";
@@ -23,6 +23,12 @@ let flushing = false;
 let retryDelayMs = MIN_RETRY_DELAY_MS;
 let retryTimer = null;
 const deliver = createDelivery({ url: WINGMAN_URL, token: INGEST_TOKEN,
+  resolveInventorySnapshot: (snapshot) => {
+    if (!process.env.SOIL_PROFILES_FILE) return resolveSoilOwnedInventorySnapshot(snapshot, {});
+    const profiles = readJson(process.env.SOIL_PROFILES_FILE, null);
+    if (profiles === null) throw new Error("Configured soil profiles file is missing");
+    return resolveSoilOwnedInventorySnapshot(snapshot, profiles);
+  },
   resolveDevice: (device) => {
     const model = device.ieee && zigbee?.models[device.ieee];
     const current = model ? zigbee.publicDevice(model)

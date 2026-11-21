@@ -204,6 +204,35 @@ class ProvisioningSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("optimal", inputs)
         self.assertNotIn("initial", json.dumps(SETUP.SIMPLE))
 
+    def test_trend_helper_names_keep_appliance_name_after_prefix(self):
+        defaults = json.loads((ROOT / "home-assistant/ui-helpers/cold-storage.json")
+                              .read_text(encoding="utf-8"))
+        expected = {
+            "temperature_trend": "Temp stiger Køleskab Værksted",
+            "average_trend": "Gns stiger Køleskab Værksted",
+        }
+        self.assertEqual(
+            {key: defaults["binary_sensor"][key]["name"] for key in expected}, expected)
+
+    async def test_trend_flow_and_registry_names_are_exact(self):
+        api = CreatingApi()
+        await SETUP.provision(api, self.root, ROOT, True)
+        expected = [
+            "Temp stiger Køleskab Værksted",
+            "Gns stiger Køleskab Værksted",
+        ]
+
+        flow_names = [mutation[2][0][1]["name"] for mutation in api.mutations
+                      if mutation[0] == "flow" and mutation[1] == "trend"]
+        registry_names = [mutation[1]["name"] for mutation in api.mutations
+                          if isinstance(mutation, tuple)
+                          and mutation[0] == "config/entity_registry/update"
+                          and mutation[1]["name"] in (
+                              "Temp stiger Køleskab Værksted",
+                              "Gns stiger Køleskab Værksted")]
+        self.assertEqual(flow_names, expected)
+        self.assertEqual(registry_names, expected)
+
     async def test_complete_creation_and_repeat_preserve_user_values(self):
         api = CreatingApi()
         await SETUP.provision(api, self.root, ROOT, True)

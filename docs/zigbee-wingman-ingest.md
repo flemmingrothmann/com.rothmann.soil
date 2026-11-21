@@ -21,6 +21,7 @@ The adapter reads HA's device/entity/area/label registries through authenticated
 - Ambiguous/multi-endpoint light mappings are not taken over silently. Their HA light observations continue; unsupported per-endpoint values are not guessed.
 - Existing soil profiles periodically refresh names/areas from HA by IEEE, including valves that did not previously have `haDeviceId`.
 - Soil topic routing also follows the live Z2M inventory by IEEE, never the old pot name in a profile. It refreshes on renames and reconnects without changing the history id; watering-circuit membership remains explicit. See [soil identity rules](../soil-controller/README.md#stable-sensor-identity).
+- Soil-controller profile sync publishes the current HA device mapping for dashboard visibility; physical observations, soil profiles and history remain Z2M/soil-owned. A fresh full HA registry snapshot with no unique IEEE match publishes `haDeviceId: null`; during HA outage the last profile mapping is retained.
 - Dashboard soil cards are controller-scoped: Z2M soil devices render only when mapped to an HA device (`haDeviceId`); Homey-controller soil devices remain visible under the existing migration policy even without an HA mapping.
 
 ## Failure behavior
@@ -30,7 +31,7 @@ The adapter volume contains `zigbee-metadata.json`, `zigbee-pending.json`, `wing
 - Raw observations are persisted before processing; outgoing batches are persisted before HTTP delivery. Queue entries are removed only after successful metadata/route synchronization and an ingest **202**.
 - Files are replaced atomically. Corrupt queues/caches fail visibly instead of being replaced with empty files. Unacknowledged events are not evicted to meet an arbitrary count limit; monitor free disk space.
 - During HA downtime, the persisted IEEE/name/area mapping remains usable. First-ever startup without any HA metadata spools observations until HA is reachable once.
-- Configure the live adapter's `HOME_ASSISTANT_URL` as `http://192.168.100.67:8123` (the former `.66` address is deprecated). In `zigbee-status.json`, `haConnected: false`, an old `metadataSyncedAt`, and a growing queued backlog together indicate registry-sync failure. Restore HA connectivity and let the adapter retry; preserve its persistent queue/WAL during recovery.
+- Configure `HOME_ASSISTANT_URL` in both the live `home-assistant-ingest-service` and `soil-controller` private `.env` files as `http://192.168.100.67:8123` (the former `.66` address is deprecated). For the ingest adapter, `zigbee-status.json` with `haConnected: false`, stale `metadataSyncedAt`, and a growing queue signals registry-sync failure; restore HA connectivity and retry while preserving its write-ahead queue/WAL.
 - Retained state uses its original `last_seen`; an untimestamped retained state is not ingested as a fresh measurement. Retained button actions are not replayed as new presses.
 - Availability `offline` creates unavailable/null observations, not invented off/zero readings. Online status alone does not invent a measurement.
 - Delivery is **at least once**, not exactly once: a lost HTTP response/crash across acknowledgements can duplicate events because the existing ingest API does not deduplicate source ids. Source ids are retained for diagnosis.

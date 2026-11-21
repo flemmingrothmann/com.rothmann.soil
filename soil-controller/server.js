@@ -6,7 +6,8 @@ const path = require('path');
 const mqtt = require('mqtt');
 const YAML = require('yaml');
 const { classifyCircuitMode, generatedHelperEntities } = require('./wateringCircuitMode');
-const { ZigbeeIdentityRoutes, cachedStateByIeee, profileMatchesDevice, observeProfileTopics } = require('./zigbeeIdentity');
+const { ZigbeeIdentityRoutes, cachedStateByIeee, profileMatchesDevice, resolveHaDeviceId, observeProfileTopics } = require('./zigbeeIdentity');
+const { buildHaDeviceSnapshot, loadHaDeviceSnapshot, persistHaDeviceSnapshot } = require('./haDeviceRegistry');
 const { SoilProvisioner, softwareControlEvents } = require('./soilProvisioning');
 const { WateringAdmin } = require('./wateringAdmin');
 
@@ -25,6 +26,7 @@ const HOME_ASSISTANT_AUTOMATIONS_FILE = process.env.HOME_ASSISTANT_AUTOMATIONS_F
 const PORT = Number(process.env.PORT || 8790);
 const QUEUE_FILE = process.env.QUEUE_FILE || '/data/wingman-queue.json';
 const ZIGBEE_ROUTES_FILE = process.env.ZIGBEE_ROUTES_FILE || '/data/zigbee-device-topics.json';
+const HA_DEVICE_REGISTRY_FILE = process.env.HA_DEVICE_REGISTRY_FILE || '/data/ha-device-registry.json';
 const MAX_QUEUE_EVENTS = Number(process.env.MAX_QUEUE_EVENTS || 100000);
 const MIN_RETRY_DELAY_MS = 15000;
 const MAX_RETRY_DELAY_MS = 5 * 60 * 1000;
@@ -39,6 +41,7 @@ let flushing = false;
 let retryTimer = null;
 let retryDelayMs = MIN_RETRY_DELAY_MS;
 let syncedProfilesSignature = '';
+let haDeviceRegistry = loadHaDeviceSnapshot(HA_DEVICE_REGISTRY_FILE);
 
 async function requestHomeAssistant(pathname, options = {}) {
   const response = await fetch(`${HOME_ASSISTANT_URL}${pathname}`, {
@@ -79,6 +82,13 @@ async function requestHomeAssistantWebSocket(type, fields = {}) {
     socket.send(JSON.stringify({ id: 1, type, ...fields }));
     const result = await nextMessage();
     if (!result.success) throw new Error(`Home Assistant WebSocket ${type} fejlede: ${result.error?.message || 'ukendt fejl'}`);
+    if (type === 'config/device_registry/list' && Array.isArray(result.result)) {
+      const snapshot = buildHaDeviceSnapshot(result.result,
+        Object.entries(profiles).filter(([, profile]) => profile.type !== 'watering_valve').map(([id]) => id));
+      persistHaDeviceSnapshot(HA_DEVICE_REGISTRY_FILE, snapshot);
+      haDeviceRegistry = snapshot;
+      await syncProfiles();
+    }
     return result.result;
   } finally { socket.close(); }
 }
@@ -494,10 +504,8 @@ async function restartWateringAfterError(deviceId) {
 }
 
 async function syncNamesFromHomeAssistant() {
-  const [devices, areas] = await Promise.all([
-    requestHomeAssistantWebSocket('config/device_registry/list'),
-    requestHomeAssistantWebSocket('config/area_registry/list'),
-  ]);
+  const devices = await requestHomeAssistantWebSocket('config/device_registry/list');
+  const areas = await requestHomeAssistantWebSocket('config/area_registry/list');
   const areasById = new Map(areas.map((area) => [area.area_id || area.id, area]));
   const before = JSON.stringify(profiles);
   for (const [ieee, profile] of Object.entries(profiles)) {
@@ -607,7 +615,8 @@ async function syncProfiles() {
       console.error(error.message || error);
     }
   }));
-  const devices = Object.entries(profiles).map(([id, profile]) => ({
+  const profilesToSync = Object.entries(profiles).filter(([, profile]) => profile.type === 'watering_valve' || haDeviceRegistry);
+  const devices = profilesToSync.map(([id, profile]) => ({
     id,
     name: profile.name,
     zoneId: profile.zoneId,
@@ -625,6 +634,7 @@ async function syncProfiles() {
       ? { wateringCircuit: profile.wateringCircuit }
       : { soil_warning: profile.threshold ?? null, soil_sampling: profile.samplingSeconds },
     sourceSystem: 'zigbee2mqtt',
+    ...(profile.type === 'watering_valve' ? {} : { haDeviceId: resolveHaDeviceId(profile, id, haDeviceRegistry) }),
   }));
   const signature = JSON.stringify(devices);
   if (signature === syncedProfilesSignature) return;

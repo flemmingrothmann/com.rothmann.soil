@@ -2,7 +2,7 @@
 
 ## Drift
 
-- `https://ha.knalloo.dk` → Caddy → `192.168.100.67:8123` på `hubert`.
+- `https://ha.knalloo.dk` → Caddy → intern HTTP `192.168.100.67:8123` på `hubert`; TLS afsluttes i Caddy.
 - ASUS RT-AC68U: de kontrollerede manuelle viderestillinger er TCP 80 og 443
   til `192.168.100.67`. UPnP, DMZ og WAN-administration er endnu ikke verificeret.
 - Ejeren har bekræftet fungerende MFA. MFA kræver ikke et cloud-abonnement.
@@ -13,13 +13,13 @@
 ## Ønskede HTTP-indstillinger
 
 - `use_x_forwarded_for: true`
-- `trusted_proxies: [172.18.0.3/32]` – kun den aktuelle Caddy-container.
+- `trusted_proxies: [172.18.0.2/32]` – kun Caddy-containerens aktuelt verificerede adresse.
 - `ip_ban_enabled: true`
 - `login_attempts_threshold: 30` – aftalt for at mindske risikoen for egen blokering.
 - Bevar øvrige eksisterende indstillinger, herunder port 8123 og CORS til Cast.
 
-Caddys kildeadresse `172.18.0.3` er verificeret med netværkstrafik på `hubert`.
-Adressen er aktuelt dynamisk tildelt af Docker. Ved genskabelse af proxy-containeren
+Caddys kildeadresse `172.18.0.2` er verificeret med netværkstrafik på `hubert`.
+Adressen er dynamisk tildelt af Docker. Ved genskabelse af proxy-containeren
 skal adressen kontrolleres, og trusted proxy opdateres ved ændring. Almindelig
 genstart ændrer ikke containerens netværkstildeling. Fejl giver afvist proxyadgang,
 ikke åben adgang. Brug lokal adgang/SSH til recovery.

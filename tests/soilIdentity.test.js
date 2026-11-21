@@ -3,12 +3,56 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { ZigbeeIdentityRoutes, cachedStateByIeee, profileMatchesDevice, observeProfileTopics } = require('../soil-controller/zigbeeIdentity');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { ZigbeeIdentityRoutes, cachedStateByIeee, profileMatchesDevice, resolveHaDeviceId, observeProfileTopics } = require('../soil-controller/zigbeeIdentity');
+const { buildHaDeviceSnapshot, loadHaDeviceSnapshot, persistHaDeviceSnapshot } = require('../soil-controller/haDeviceRegistry');
 
 const citron = '0xa4c138f35b60c6a1';
 const other = '0xa4c1389229cda157';
 const inventory = (name = 'Citrontræ') => [{ ieee_address: citron, friendly_name: name }];
 const profiles = { [citron]: { name: 'Citrontræ', zigbeeTopic: 'Terrasse Vægpotte', alarmTopic: 'homeassistant/soil/original/alarm' } };
+
+test('HA device mapping uses persisted exact MQTT IEEE mappings and fails closed', () => {
+  const profile = { haDeviceId: 'stale' };
+  const devices = [
+    { id: 'current', identifiers: [['mqtt', `zigbee2mqtt_${citron}`]] },
+    { id: 'mixed-case', identifiers: [['mqtt', `ZIGBEE2MQTT_${citron.toUpperCase()}`]] },
+  ];
+  assert.equal(buildHaDeviceSnapshot([devices[0]], [citron]).devices[citron], 'current');
+  assert.equal(buildHaDeviceSnapshot([devices[1]], [citron]).devices[citron], 'mixed-case');
+  assert.equal(buildHaDeviceSnapshot([devices[0], { ...devices[0], id: 'duplicate' }], [citron]).devices[citron], null);
+  assert.equal(resolveHaDeviceId(profile, citron, { devices: { [citron]: null } }), null);
+  assert.equal(resolveHaDeviceId(profile, citron, null), undefined);
+  assert.equal(resolveHaDeviceId({ type: 'watering_valve', haDeviceId: 'valve' }, citron, { devices: { [citron]: 'current' } }), undefined);
+});
+
+test('HA registry snapshot persists explicit null across restart without resurrecting profile id', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'soil-ha-registry-'));
+  const file = path.join(directory, 'registry.json');
+  try {
+    const firstProcessSnapshot = buildHaDeviceSnapshot([], [citron], '2026-11-21T10:00:00.000Z');
+    persistHaDeviceSnapshot(file, firstProcessSnapshot);
+    const restartedSnapshot = loadHaDeviceSnapshot(file);
+    assert.equal(restartedSnapshot.devices[citron], null);
+    assert.equal(resolveHaDeviceId({ haDeviceId: 'stale' }, citron, restartedSnapshot), null);
+    assert.equal(restartedSnapshot.syncedAt, firstProcessSnapshot.syncedAt);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('corrupt persisted HA registry snapshot fails visibly instead of becoming empty', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'soil-ha-registry-corrupt-'));
+  const file = path.join(directory, 'registry.json');
+  try {
+    fs.writeFileSync(file, '{"version":1,"devices":{}');
+    assert.throws(() => loadHaDeviceSnapshot(file), /JSON|persisted Home Assistant/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('sensor history identity follows IEEE, not its current or previous display name', () => {
   const routes = new ZigbeeIdentityRoutes(inventory());

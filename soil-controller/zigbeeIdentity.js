@@ -5,6 +5,14 @@ function normalizeIeee(value) {
   return /^0x[0-9a-f]{16}$/.test(ieee) ? ieee : null;
 }
 
+function resolveHaDeviceId(profile, ieee, registryDevices) {
+  if (profile.type === 'watering_valve') return undefined;
+  const normalizedIeee = normalizeIeee(ieee);
+  if (!normalizedIeee) return null;
+  if (!registryDevices) return undefined;
+  return Object.hasOwn(registryDevices.devices, normalizedIeee) ? registryDevices.devices[normalizedIeee] : null;
+}
+
 function profileMatchesDevice(id, profile, device) {
   const ieee = normalizeIeee(id);
   const deviceIeees = (device.device_keys || []).map((key) => normalizeIeee(String(key).replace(/^zigbee2mqtt_/i, ''))).filter(Boolean);
@@ -98,4 +106,4 @@ function observeProfileTopics(client, { profiles, routes = new ZigbeeIdentityRou
   });
 }
 
-module.exports = { normalizeIeee, profileMatchesDevice, ZigbeeIdentityRoutes, cachedStateByIeee, observeProfileTopics };
+module.exports = { normalizeIeee, resolveHaDeviceId, profileMatchesDevice, ZigbeeIdentityRoutes, cachedStateByIeee, observeProfileTopics };

@@ -1,6 +1,29 @@
 "use strict";
 
-function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () => true, resolveDevice = (device) => device }) {
+function resolveSoilOwnedInventorySnapshot(snapshot, profiles = {}) {
+  if (snapshot?.inventorySource !== "zigbee2mqtt") return snapshot;
+  const owned = new Set();
+  const ownedIeee = new Set();
+  for (const device of snapshot.devices || []) {
+    const ieee = device.ieee || device.physicalDeviceId || device.id;
+    const profile = profiles[ieee] || Object.entries(profiles).find(([key]) =>
+      key.toLowerCase() === String(ieee).toLowerCase())?.[1];
+    if (!profile) continue;
+    ownedIeee.add(ieee);
+    owned.add(ieee);
+    owned.add(device.id);
+    if (profile.id) owned.add(profile.id);
+  }
+  return {
+    ...snapshot,
+    devices: (snapshot.devices || []).filter((device) =>
+      !ownedIeee.has(device.ieee || device.physicalDeviceId || device.id)),
+    routes: (snapshot.routes || []).filter((route) => !owned.has(route.sourceDeviceId)),
+    protectedDeviceIds: [...new Set([...(snapshot.protectedDeviceIds || []), ...owned])],
+  };
+}
+
+function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () => true, resolveDevice = (device) => device, resolveInventorySnapshot = (snapshot) => snapshot }) {
   const devices = new Map();
   const routes = new Set();
   async function request(pathname, method, body, accepted) {
@@ -13,7 +36,7 @@ function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () =
   }
   return async function deliver(envelope) {
     if (envelope.inventorySnapshot) {
-      const snapshot = envelope.inventorySnapshot;
+      const snapshot = await resolveInventorySnapshot(envelope.inventorySnapshot);
       await request("/api/sync/external-device-inventory", "POST", snapshot, true);
       devices.clear();
       for (const route of snapshot.routes || []) {
@@ -52,4 +75,4 @@ async function drainQueue(queue, deliver) {
   }
 }
 
-module.exports = { createDelivery, drainQueue };
+module.exports = { createDelivery, drainQueue, resolveSoilOwnedInventorySnapshot };

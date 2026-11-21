@@ -10,7 +10,7 @@ const { registryMetadata } = require("../home-assistant-ingest-service/registry"
 const { deviceModel, observationBatch } = require("../home-assistant-ingest-service/zigbee");
 const { ZigbeeObserver } = require("../home-assistant-ingest-service/zigbee-observer");
 const { PersistentQueue, readJson, writeJson } = require("../home-assistant-ingest-service/storage");
-const { createDelivery, drainQueue } = require("../home-assistant-ingest-service/delivery");
+const { createDelivery, drainQueue, resolveSoilOwnedInventorySnapshot } = require("../home-assistant-ingest-service/delivery");
 const { getHomeAssistantLightTarget } = require("../dashboard/server");
 const { validateExternalDeviceInventory, reconcileExternalDeviceInventory } = require("../ingest-service/externalDeviceInventory");
 
@@ -323,6 +323,70 @@ test("inventory delivery is retained until reconciliation returns 202", async (t
   await drainQueue(queue, deliver);
   assert.equal(queue.length, 0);
   assert.equal(calls[0].url, "http://wingman/api/sync/external-device-inventory");
+});
+
+test("queued Z2M inventory excludes newly profile-owned soil rows at delivery time", async () => {
+  const oldSnapshot = { inventorySource: "zigbee2mqtt", devices: [
+    { id: "legacy-history-id", physicalDeviceId: ieee, inventorySource: "zigbee2mqtt" },
+    { id: "watering-ieee", ieee: "watering-ieee", capabilities: ["measure_soil_moisture"], inventorySource: "zigbee2mqtt" },
+    { id: "unowned-ieee", ieee: "unowned-ieee", capabilities: ["measure_soil_moisture"], inventorySource: "zigbee2mqtt" },
+  ], protectedDeviceIds: ["already-protected"], routes: [
+    { sourceDeviceId: "legacy-history-id", targetDeviceId: "target-soil" },
+    { sourceDeviceId: "watering-ieee", targetDeviceId: "target-valve" },
+    { sourceDeviceId: "unowned-ieee", targetDeviceId: "target-unowned" },
+  ] };
+  const originalSnapshot = structuredClone(oldSnapshot);
+  const profiles = {
+    [ieee.toUpperCase()]: { id: "soil-profile-id" },
+    "watering-ieee": { id: "watering-profile-id", type: "watering_valve" },
+  };
+  const result = resolveSoilOwnedInventorySnapshot(oldSnapshot, profiles);
+  assert.deepEqual(result.devices.map((device) => device.id), ["unowned-ieee"]);
+  assert.deepEqual(result.protectedDeviceIds, [
+    "already-protected", ieee, "legacy-history-id", "soil-profile-id",
+    "watering-ieee", "watering-profile-id",
+  ]);
+  assert.deepEqual(result.routes, [{ sourceDeviceId: "unowned-ieee", targetDeviceId: "target-unowned" }]);
+  assert.deepEqual(oldSnapshot, originalSnapshot);
+  assert.deepEqual(resolveSoilOwnedInventorySnapshot(
+    { inventorySource: "home_assistant_lights", devices: [{ id: "light.test" }] },
+    { [ieee]: { id: "soil-profile-id" } },
+  ), { inventorySource: "home_assistant_lights", devices: [{ id: "light.test" }] });
+
+  const calls = [];
+  const deliver = createDelivery({ url: "http://wingman", token: "test",
+    resolveInventorySnapshot: (snapshot) => resolveSoilOwnedInventorySnapshot(snapshot, profiles),
+    fetchImpl: async (url, options) => {
+      calls.push({ url, body: JSON.parse(options.body) });
+      return { status: 202, ok: true, text: async () => "" };
+    } });
+  await deliver({ inventorySnapshot: oldSnapshot });
+  assert.deepEqual(calls[0].body.devices.map((device) => device.id), ["unowned-ieee"]);
+  assert.deepEqual(calls[0].body.protectedDeviceIds, [
+    "already-protected", ieee, "legacy-history-id", "soil-profile-id",
+    "watering-ieee", "watering-profile-id",
+  ]);
+  assert.deepEqual(calls[0].body.routes, [{ sourceDeviceId: "unowned-ieee", targetDeviceId: "target-unowned" }]);
+  assert.deepEqual(oldSnapshot, originalSnapshot);
+  assert.equal(calls.some((call) => call.url.endsWith("/api/ingest")), false);
+  assert.equal(calls.some((call) => call.url.endsWith("/api/sync/external-devices")), false);
+});
+
+test("configured missing soil profiles fail delivery without sending or acknowledging inventory", async (t) => {
+  const queue = new PersistentQueue(path.join(temporary(t), "missing-profiles-queue.json"));
+  const snapshot = { inventorySnapshot: { inventorySource: "zigbee2mqtt", devices: [], protectedDeviceIds: [], routes: [] } };
+  queue.push(snapshot);
+  const calls = [];
+  const deliver = createDelivery({ url: "http://wingman", token: "test",
+    resolveInventorySnapshot: () => { throw new Error("Configured soil profiles file is missing"); },
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return { status: 202, ok: true };
+    } });
+  await assert.rejects(drainQueue(queue, deliver), /Configured soil profiles file is missing/);
+  assert.equal(queue.length, 1);
+  assert.deepEqual(new PersistentQueue(queue.filename).first, snapshot);
+  assert.deepEqual(calls, []);
 });
 
 test("external inventory validation rejects unsafe or ambiguous snapshots", () => {

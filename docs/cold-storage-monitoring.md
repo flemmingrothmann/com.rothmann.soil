@@ -6,6 +6,10 @@ Køleovervågningens blueprint lægges i `home-assistant/blueprints/automation/w
 
 Opret UI-hjælperne fra `home-assistant/ui-helpers/cold-storage.json` og tilføj blueprint-automatikken. Vælg temperaturføler, gennemsnit, trends, alarm-latch, starttidspunkt, alarmgrænse og timeout samt notifikationsmål `notify.manuel_vanding_mobilapps`. Repoets JSON er defaults/testdata og må aldrig overskrive brugerens UI-værdier.
 
+Trend-hjælperne vises som **Temp stiger Køleskab Værksted** og
+**Gns stiger Køleskab Værksted**. Navnene kan ændres i HA uden at ændre
+deres entity-ID'er eller historik.
+
 Ved tilmelding sættes starttidspunktet én gang til aktuel dato og tid. Alarm kan først aktiveres efter mindst 24 timer; data fra den indledende indsamlingsperiode vurderes ikke som fuld overvågning. Statistikken bruger `average_step` med 24 timers vindue: tidsvægtet gennemsnit af tilgængelige observationer, ikke `average_timeless`. Trends anvender lineær regression over én time, minimum to samples og positiv hældning.
 
 Standard timeout er 120 minutter og kan justeres i UI (10–1440 minutter i trin på 5). Både aktuel kilde og gennemsnit skal have frisk `last_reported`; gennemsnittets `source_value_valid` skal være sand. Begge trends skal have mindst to samples, positiv gradient og frisk `last_updated` inden for én time. Dette blokerer genskabt trendstatus uden samples og trends, der ikke er blevet opdateret. Lige præcis alarmgrænsen holder eksisterende status. Alarm indtræffer kun når gennemsnittet er over grænsen, begge trends stiger og latch er slukket. Genopretning kræver frisk gyldig kilde og gennemsnit under grænsen; trends indgår ikke. Ukendt/offline eller datamangler ændrer aldrig latch. En vedvarende latch sættes før ét notifikationsforsøg pr. episode. `notify.send_message` accepteres uden garanti for pushlevering eller modtagelse.
