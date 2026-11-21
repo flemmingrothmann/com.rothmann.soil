@@ -228,8 +228,8 @@ class ProvisioningSafetyTests(unittest.IsolatedAsyncioTestCase):
                           if isinstance(mutation, tuple)
                           and mutation[0] == "config/entity_registry/update"
                           and mutation[1]["name"] in (
-                               "Temperaturen stiger",
-                               "Gennemsnittet stiger")]
+                              "Temperaturen stiger",
+                              "Gennemsnittet stiger")]
         self.assertEqual(flow_names, expected)
         self.assertEqual(registry_names, expected)
 
@@ -244,6 +244,18 @@ class ProvisioningSafetyTests(unittest.IsolatedAsyncioTestCase):
             {"entity": SETUP.ENTITIES["temperature_trend"], "name": "Temperaturen stiger"},
             {"entity": SETUP.ENTITIES["average_trend"], "name": "Gennemsnittet stiger"},
         ])
+
+    def test_history_graph_uses_temperature_and_average_sensors(self):
+        dashboard = json.loads((ROOT / "home-assistant/dashboards/cold-storage.json")
+                               .read_text(encoding="utf-8"))
+        graph = next(card for card in dashboard["views"][0]["cards"]
+                     if card.get("type") == "history-graph")
+        self.assertEqual(graph["entities"], [
+            {"entity": SETUP.SOURCE, "name": "Aktuel temperatur"},
+            {"entity": SETUP.ENTITIES["average_sensor"],
+             "name": "Gennemsnit over 24 timer"},
+        ])
+        self.assertEqual(graph["hours_to_show"], 168)
 
     async def test_complete_creation_and_repeat_preserve_user_values(self):
         api = CreatingApi()
