@@ -132,8 +132,8 @@ async def create_config_helper(api, handler, key, steps, manifest, manifest_path
             await api.call("config/entity_registry/update", entity_id=entity["entity_id"],
                            new_entity_id=ENTITIES[key], name={
                                "average_sensor": "gennemsnit 24t",
-                               "temperature_trend": "Temp stiger " + TITLE,
-                               "average_trend": "Gns stiger " + TITLE,
+                               "temperature_trend": "Temperaturen stiger",
+                               "average_trend": "Gennemsnittet stiger",
                            }[key])
             break
         await asyncio.sleep(0.5)
@@ -252,8 +252,8 @@ async def provision(api, root, assets, apply):
         if key in manifest["entities"]:
             continue
         entry_id = await create_config_helper(api, "trend", key, [
-            ("user", {"name": ("Temp stiger " if key == "temperature_trend"
-                               else "Gns stiger ") + TITLE, "entity_id": source}),
+            ("user", {"name": ("Temperaturen stiger" if key == "temperature_trend"
+                               else "Gennemsnittet stiger"), "entity_id": source}),
             ("settings", {"invert": False}),
         ], manifest, manifest_path)
         flow = await api.rest("/api/config/config_entries/options/flow", {"handler": entry_id})

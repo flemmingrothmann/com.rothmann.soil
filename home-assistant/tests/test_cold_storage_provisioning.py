@@ -204,12 +204,12 @@ class ProvisioningSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("optimal", inputs)
         self.assertNotIn("initial", json.dumps(SETUP.SIMPLE))
 
-    def test_trend_helper_names_keep_appliance_name_after_prefix(self):
+    def test_trend_helper_names_are_concise(self):
         defaults = json.loads((ROOT / "home-assistant/ui-helpers/cold-storage.json")
                               .read_text(encoding="utf-8"))
         expected = {
-            "temperature_trend": "Temp stiger Køleskab Værksted",
-            "average_trend": "Gns stiger Køleskab Værksted",
+            "temperature_trend": "Temperaturen stiger",
+            "average_trend": "Gennemsnittet stiger",
         }
         self.assertEqual(
             {key: defaults["binary_sensor"][key]["name"] for key in expected}, expected)
@@ -218,8 +218,8 @@ class ProvisioningSafetyTests(unittest.IsolatedAsyncioTestCase):
         api = CreatingApi()
         await SETUP.provision(api, self.root, ROOT, True)
         expected = [
-            "Temp stiger Køleskab Værksted",
-            "Gns stiger Køleskab Værksted",
+            "Temperaturen stiger",
+            "Gennemsnittet stiger",
         ]
 
         flow_names = [mutation[2][0][1]["name"] for mutation in api.mutations
@@ -228,10 +228,22 @@ class ProvisioningSafetyTests(unittest.IsolatedAsyncioTestCase):
                           if isinstance(mutation, tuple)
                           and mutation[0] == "config/entity_registry/update"
                           and mutation[1]["name"] in (
-                              "Temp stiger Køleskab Værksted",
-                              "Gns stiger Køleskab Værksted")]
+                               "Temperaturen stiger",
+                               "Gennemsnittet stiger")]
         self.assertEqual(flow_names, expected)
         self.assertEqual(registry_names, expected)
+
+    def test_status_panel_labels_override_generated_device_prefixes(self):
+        dashboard = json.loads((ROOT / "home-assistant/dashboards/cold-storage.json")
+                               .read_text(encoding="utf-8"))
+        status = next(card for card in dashboard["views"][0]["cards"]
+                      if card.get("title") == "Status")
+        self.assertEqual(status["entities"], [
+            {"entity": SETUP.SOURCE, "name": "Aktuel temperatur"},
+            {"entity": SETUP.ENTITIES["average_sensor"], "name": "Gennemsnit over 24 timer"},
+            {"entity": SETUP.ENTITIES["temperature_trend"], "name": "Temperaturen stiger"},
+            {"entity": SETUP.ENTITIES["average_trend"], "name": "Gennemsnittet stiger"},
+        ])
 
     async def test_complete_creation_and_repeat_preserve_user_values(self):
         api = CreatingApi()

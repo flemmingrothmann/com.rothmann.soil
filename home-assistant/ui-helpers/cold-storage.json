@@ -11,7 +11,7 @@
   },
   "binary_sensor": {
     "temperature_trend": {
-      "name": "Temp stiger Køleskab Værksted",
+      "name": "Temperaturen stiger",
       "platform": "trend",
       "entity_id": "sensor.0xf044d3fffe1acc2b_temperature",
       "min_samples": 2,
@@ -21,7 +21,7 @@
       "unique_id": "koleskab_vaerksted_temperatur_stiger"
     },
     "average_trend": {
-      "name": "Gns stiger Køleskab Værksted",
+      "name": "Gennemsnittet stiger",
       "platform": "trend",
       "entity_id": "sensor.koleskab_vaerksted_gennemsnit_24t",
       "min_samples": 2,

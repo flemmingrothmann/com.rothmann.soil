@@ -16,9 +16,9 @@
           "show_header_toggle": false,
           "entities": [
             { "entity": "sensor.0xf044d3fffe1acc2b_temperature", "name": "Aktuel temperatur" },
-            "sensor.koleskab_vaerksted_gennemsnit_24t",
-            "binary_sensor.koleskab_vaerksted_temperatur_stiger",
-            "binary_sensor.koleskab_vaerksted_gennemsnit_stiger"
+            { "entity": "sensor.koleskab_vaerksted_gennemsnit_24t", "name": "Gennemsnit over 24 timer" },
+            { "entity": "binary_sensor.koleskab_vaerksted_temperatur_stiger", "name": "Temperaturen stiger" },
+            { "entity": "binary_sensor.koleskab_vaerksted_gennemsnit_stiger", "name": "Gennemsnittet stiger" }
           ]
         },
         {
