@@ -13,6 +13,7 @@ const { PersistentQueue, readJson, writeJson } = require("../home-assistant-inge
 const { createDelivery, drainQueue, resolveSoilOwnedInventorySnapshot } = require("../home-assistant-ingest-service/delivery");
 const { getHomeAssistantLightTarget } = require("../dashboard/server");
 const { validateExternalDeviceInventory, reconcileExternalDeviceInventory } = require("../ingest-service/externalDeviceInventory");
+const { activeIdentities } = require("../tools/verify-zigbee-ingest");
 
 const ieee = "0x1234567890abcdef";
 const time = "2026-11-11T12:00:00.000Z";
@@ -237,6 +238,18 @@ test("fresh Z2M inventory emits scoped reconciliation and drops removed cached o
   const count = envelopes.length;
   observer.message("zigbee2mqtt/bridge/devices", Buffer.from(JSON.stringify([replacement])));
   assert.equal(envelopes.length, count);
+});
+
+test("verifier ignores retained identities absent from current bridge inventory", () => {
+  const activeIdentity = { id: "active-device" };
+  const cache = {
+    bridges: [{ ieee_address: ieee }],
+    identities: {
+      [ieee]: activeIdentity,
+      "0xc02cedfffeefc4fd": { id: "removed-device" },
+    },
+  };
+  assert.deepEqual(activeIdentities(cache), [[ieee, activeIdentity]]);
 });
 
 test("new unplaced devices retain IEEE identity when HA metadata arrives later", (t) => {

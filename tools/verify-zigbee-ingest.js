@@ -5,23 +5,28 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const mqtt = require("mqtt");
-const { ZigbeeObserver } = require("./zigbee-observer");
-const base = process.env.WINGMAN_URL;
-const cache = JSON.parse(fs.readFileSync("/data/zigbee-metadata.json", "utf8"));
-const profiles = JSON.parse(fs.readFileSync(process.env.SOIL_PROFILES_FILE, "utf8"));
 
-async function get(pathname) {
-  const response = await fetch(`${base}${pathname}`, { signal: AbortSignal.timeout(15000) });
-  if (!response.ok) throw new Error(`Wingman ${pathname}: ${response.status}`);
-  return response.json();
+function activeIdentities(cache) {
+  const activeIeee = new Set(cache.bridges.map((bridge) => bridge.ieee_address));
+  return Object.entries(cache.identities).filter(([ieee]) => activeIeee.has(ieee));
 }
 
 async function main() {
+  const mqtt = require("mqtt");
+  const { ZigbeeObserver } = require("./zigbee-observer");
+  const base = process.env.WINGMAN_URL;
+  const cache = JSON.parse(fs.readFileSync("/data/zigbee-metadata.json", "utf8"));
+  const profiles = JSON.parse(fs.readFileSync(process.env.SOIL_PROFILES_FILE, "utf8"));
+  async function get(pathname) {
+    const response = await fetch(`${base}${pathname}`, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`Wingman ${pathname}: ${response.status}`);
+    return response.json();
+  }
+
   assert.ok(cache.syncedAt, "HA metadata must be cached");
   const snapshot = await get("/api/homey/snapshot");
   let directLights = 0;
-  for (const [ieee, identity] of Object.entries(cache.identities)) {
+  for (const [ieee, identity] of activeIdentities(cache)) {
     const meta = cache.metadata[ieee];
     if (profiles[ieee] || meta?.ignored) continue;
     const device = snapshot.devices[identity.id];
@@ -86,4 +91,8 @@ async function main() {
   console.log(JSON.stringify({ ok: true, metadataSyncedAt: cache.syncedAt, directLights, cachedMetadataDuringHaOutage: true, liveObservation: observation, energyCapabilities: energy.length, queued: pending.length }));
 }
 
-main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+module.exports = { activeIdentities };
+
+if (require.main === module) {
+  main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+}
