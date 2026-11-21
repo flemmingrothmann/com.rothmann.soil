@@ -51,6 +51,7 @@ async function main() {
   fs.copyFileSync("/data/zigbee-metadata.json", path.join(temporary, "zigbee-metadata.json"));
   const cachedObservations = [];
   const offline = new ZigbeeObserver({ directory: temporary, profilesFile: process.env.SOIL_PROFILES_FILE, enqueue: (item) => cachedObservations.push(item) });
+  offline.message("zigbee2mqtt/bridge/devices", Buffer.from(JSON.stringify(cache.bridges)));
   // Simulate an unavailable HA connection without stopping the real HA or its automations.
   const stopOffline = offline.start({ url: "http://127.0.0.1:1", token: "unreachable-test" });
   const client = mqtt.connect(process.env.MQTT_URL, { username: process.env.MQTT_USERNAME, password: process.env.MQTT_PASSWORD });
@@ -69,7 +70,7 @@ async function main() {
         const field = Object.keys(fields).find((key) => typeof payload[key] === "number");
         if (!identity || !field || !payload.last_seen) return;
         offline.message(topic, raw, packet);
-        assert.ok(cachedObservations.some((item) => item.events.some((event) => event.capability === fields[field] && event.value === payload[field])), "Cached metadata must support actual MQTT observations while HA is unreachable");
+        assert.ok(cachedObservations.some((item) => item.events?.some((event) => event.capability === fields[field] && event.value === payload[field])), "Cached metadata must support actual MQTT observations while HA is unreachable");
         clearTimeout(deadline);
         resolve({ id: identity.id, capability: fields[field], value: payload[field], time: new Date(payload.last_seen).toISOString() });
       } catch (error) { clearTimeout(deadline); reject(error); }

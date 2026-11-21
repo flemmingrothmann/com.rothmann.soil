@@ -175,6 +175,20 @@ test("HA outage and adapter restart preserve metadata, history ids and HA-event 
   assert.equal(restarted.suppressHa("light.office"), true);
 });
 
+test("restarted observer requires fresh bridge inventory before cached metadata emits observations", (t) => {
+  const { observer, directory, envelopes } = setup(t);
+  const restarted = new ZigbeeObserver({ directory, enqueue: (item) => envelopes.push(item), now: () => time });
+  assert.equal(envelopes.length, 0);
+  restarted.message("zigbee2mqtt/bridge/devices", Buffer.from(JSON.stringify([bridge])));
+  assert.ok(envelopes.some((item) => item.inventorySnapshot));
+  assert.equal(envelopes.some((item) => item.events?.length), false);
+  restarted.message("zigbee2mqtt/MQTT name", Buffer.from(JSON.stringify({ power: 42, last_seen: time })));
+  const observation = envelopes.find((item) => item.events?.some((event) => event.capability === "measure_power"));
+  assert.ok(observation);
+  assert.equal(observation.events.find((event) => event.capability === "measure_power").value, 42);
+  assert.equal(observation.events.find((event) => event.capability === "measure_power").time, time);
+});
+
 test("HA metadata changes sync without inventing observations; entity rename versions replay target", (t) => {
   const { observer, envelopes } = setup(t);
   const originalRoute = observer.models[ieee].route;
