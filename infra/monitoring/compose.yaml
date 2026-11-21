@@ -1,4 +1,38 @@
 services:
+  beszel-hub:
+    image: henrygd/beszel:0.21.2@sha256:b0be90bd4aee2993fde763032a5098ce4386fba43cfe5031ec017b8d9e8c97a2
+    container_name: beszel-hub
+    restart: unless-stopped
+    environment:
+      APP_URL: http://192.168.100.67:8090
+    ports:
+      - "192.168.100.67:8090:8090"
+    volumes:
+      - beszel-data:/beszel_data
+      - beszel-socket:/beszel_socket
+    healthcheck:
+      test: ["CMD", "/beszel", "health", "--url", "http://localhost:8090"]
+      interval: 120s
+      start_period: 10s
+      timeout: 5s
+
+  beszel-agent:
+    image: henrygd/beszel-agent:0.21.2@sha256:343254226ae57a5cc6f8c23c755b1464730aba2abc7043116a2e222711ec6e1a
+    container_name: beszel-agent
+    restart: unless-stopped
+    profiles:
+      - beszel-agent
+    network_mode: host
+    volumes:
+      - beszel-agent-data:/var/lib/beszel-agent
+      - beszel-socket:/beszel_socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      LISTEN: /beszel_socket/beszel.sock
+      TOKEN: ${BESZEL_TOKEN:-}
+      KEY: ${BESZEL_KEY:-}
+      DOCKER_IMAGE_CHECK: "false"
+
   netdata:
     image: netdata/netdata:stable
     container_name: hubert-netdata
@@ -24,6 +58,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
 volumes:
+  beszel-data:
+  beszel-agent-data:
+  beszel-socket:
   netdata-config:
   netdata-lib:
   netdata-cache:
