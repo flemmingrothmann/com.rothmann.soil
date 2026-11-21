@@ -37,10 +37,33 @@ The adapter volume contains `zigbee-metadata.json`, `zigbee-pending.json`, `wing
 ## Z2M inventory reconciliation
 
 - On each MQTT connection the adapter waits for a fresh, validated `zigbee2mqtt/bridge/devices` inventory before replaying queued observations. Empty, malformed or duplicate-IEEE inventories are rejected; stale cached inventory is never used to authorize deletion.
-- The adapter durably queues a complete snapshot to `POST /api/sync/external-device-inventory`. The endpoint accepts only `inventorySource: "zigbee2mqtt"`; it upserts current devices and removes missing Z2M-owned external-device metadata/current state in one transaction.
+- The adapter durably queues a complete snapshot to `POST /api/sync/external-device-inventory` with `inventorySource: "zigbee2mqtt"`; it upserts current devices and removes missing Z2M-owned external-device metadata/current state in one transaction.
 - Soil-profile IDs and currently inventoried devices that cannot be safely mapped are sent as protected IDs. Cleanup also checks ownership metadata/legacy Z2M driver and route records, and current-state deletion requires Z2M provenance. Homey state is protected.
 - Active routes belonging to removed Z2M devices are closed. Historical `ingest_event` rows are never deleted. Route updates for devices still present continue through the existing replay-route API.
-- Queue acknowledgement requires HTTP 202. Failed API delivery retains the complete snapshot for retry; repeating a snapshot is safe. This endpoint is exclusively for complete Z2M inventories—partial device updates must continue using `POST /api/sync/external-devices`.
+- Queue acknowledgement requires HTTP 202. Failed API delivery retains the complete snapshot for retry; repeating a snapshot is safe. This endpoint is exclusively for complete, source-scoped inventories—partial device updates must continue using `POST /api/sync/external-devices`.
+
+## HA light inventory
+
+- The same endpoint also accepts `inventorySource: "home_assistant_lights"`, restricted to `light.*` devices with `driverId: "home_assistant:light"` and `sourceSystem: "home_assistant"`. Other HA devices, including the energy meter, are outside this scope.
+- A successful full HA registry/state read supplies the inventory. Registry changes and light creation/removal/name changes refresh it; unavailable lights still present in HA remain visible as unavailable. Failed reads never produce an empty cleanup snapshot.
+- HA owns current names and areas. Metadata sync does not depend on a new physical reading. Delayed MQTT observations cannot overwrite current registry names or recreate removed metadata/replay routes; their original events are retained.
+- Direct Z2M history IDs and soil-profile IDs are protected from HA-light cleanup. Removed legacy HA-light metadata/current HA state is deleted, its HA routes closed, and event history preserved. No automatic identity merging occurs.
+- Exclusion and protection are separate: a direct Z2M light's current `haEntityId` is excluded from the generic HA inventory, but only its stable history ID is protected. When the history ID is IEEE, protecting the HA alias as well would keep a stale duplicate alive. When the history ID is already `light.*`, that same ID must remain protected.
+- Dashboard error text is controller-neutral: an unavailable HA/Z2M device must not be described as a Homey failure.
+
+### Alias reconciliation verified on Hubert, 19 November 2026
+
+- Separate HA-entity exclusion from stable-ID protection. `Værksted Hovedrum` now has one IEEE-bound inventory entry; the stale generic HA alias and its current state were removed automatically.
+- Its six historical HA events and all 2,051 pre-verification Z2M events remain. The stale HA route was closed; the active Z2M-to-HA route and 43 unrelated non-HA inventory entries were preserved.
+- HA and Wingman both report off, and the authenticated lights dashboard no longer shows the ghost as on. Both adapter queues drained; deployed source/runtime hashes matched. No physical commands or HA/Z2M restarts were used.
+- Independent review passed; 176 offline Node tests passed. Source/image backup: `/opt/soil/.backups/light-reconciliation-20261119T212033Z/`.
+
+### Verified on Hubert, 17 November 2026
+
+- 174 Node tests passed; the reconciliation SQL also passed isolated temporary-table tests in Hubert's PostgreSQL (including source boundaries, history, protected IDs and retries).
+- The removed HA light `light.0x94a081fffe2f9ad0` disappeared automatically. The active IEEE-bound `Soveværelse skab LED-driver` remained available; all four old HA events and the Z2M history were preserved, along with 30 unrelated external-device metadata records.
+- A temporary HA device rename propagated to Wingman without a hardware command. The original name was restored and verified, with the same IEEE/history identity.
+- Authenticated lights/overview APIs contain no ghost; served frontend error text is controller-neutral. All seven dashboard build-context files and six runtime assets matched the repository. Source/image baseline: `/opt/soil/.backups/ha-light-inventory-20261117/`.
 
 ## Deploy and verify
 

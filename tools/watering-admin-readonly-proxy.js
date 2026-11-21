@@ -31,7 +31,7 @@ fetch('http://127.0.0.1:8787'+input.path,{method:input.method,headers:{cookie:'s
 '''
 subprocess.run(['docker','exec','-i','soil-dashboard','node','-e',code],input=base64.b64decode('${input}'),check=True)
 `;
-  const child = spawn('ssh', ['-o', 'ConnectTimeout=10', 'fro@192.168.100.66', 'python3', '-'], { windowsHide: true });
+  const child = spawn('ssh', ['-o', 'ConnectTimeout=10', 'fro@192.168.100.67', 'python3', '-'], { windowsHide: true });
   const output = [];
   child.stdout.on('data', (data) => output.push(data));
   child.stderr.resume();

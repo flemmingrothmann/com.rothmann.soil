@@ -359,7 +359,7 @@ function flattenDevices(data) {
 }
 
 function getThresholdDisabledReason(device) {
-  if (device.error) return 'Sensoren melder fejl i Homey.';
+  if (device.error) return 'Sensoren melder fejl eller er utilgængelig.';
   if (device.offline || !device.live) return 'Sensoren er offline.';
   if (!device.controls?.canSetAlarmThreshold) return 'Sensoren har ingen jordfugtgrænse, der kan ændres her.';
   return '';
@@ -1047,7 +1047,7 @@ function renderSoilDashboard(data) {
     + renderSection('Vandalarmer', waterAlarmDevices)
     + renderSection('Flyt/rens sensorer', maintenanceDevices)
     + renderSection('Offline sensorer', offlineDevices)
-    + renderSection('Sensorfejl i Homey', errorDevices)
+    + renderSection('Sensorfejl', errorDevices)
     + renderSensorsByZone(devices);
   renderGraphs();
 }
@@ -1472,6 +1472,7 @@ function renderActiveDevice(device, options) {
     </div>
     <div class="facts">
       ${device.activeSince ? `<div class="fact"><strong>${formatTime(device.activeSince)}</strong>${escapeHtml(options.sinceLabel)}</div>` : ''}
+      ${options.allowTurnOff ? `<div class="fact"><strong>${formatValue(device.brightness, '%')}</strong>Lysstyrke</div>` : ''}
       <div class="fact"><strong>${formatValue(device.battery, '%')}</strong>Batteri</div>
       <div class="fact"><strong>${device.available ? 'Ja' : 'Nej'}</strong>Tilgængelig</div>
     </div>

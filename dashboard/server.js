@@ -1585,6 +1585,18 @@ async function toActiveBinaryDevice(device, zoneInfo, capability) {
     path: [device.zone || "Ukendt zone"],
     pathText: device.zone || "Ukendt zone",
   };
+  const active = isActiveCapability(device, capability);
+  let activeSince = null;
+  if (capability === "onoff" && active) {
+    try {
+      const entries = await getInsightEntries(device.id, capability);
+      const timestamp = getActiveSince(entries);
+      activeSince = timestamp === null ? null : new Date(timestamp).toISOString();
+    } catch {
+      // The current light state remains useful when its history is unavailable.
+    }
+  }
+  const dimValue = getCapabilityValue(device, "dim");
   return {
     id: device.id,
     name: device.name.trim(),
@@ -1593,14 +1605,17 @@ async function toActiveBinaryDevice(device, zoneInfo, capability) {
     zonePath: zone.path,
     zonePathText: zone.pathText,
     available: isAvailable(device),
-    active: isActiveCapability(device, capability),
-    activeSince: null,
-    activeDurationMs: null,
+    active,
+    activeSince,
+    activeDurationMs: activeSince ? Math.max(0, Date.now() - Date.parse(activeSince)) : null,
+    brightness: hasCapability(device, "dim") && typeof dimValue === "number"
+      ? Math.round(Math.max(0, Math.min(1, dimValue)) * 100)
+      : 100,
     battery: getCapabilityValue(device, "measure_battery"),
     linkQuality: getCapabilityValue(device, "linkquality"),
     error: isAvailable(device)
       ? null
-      : "Enheden melder fejl eller er utilgængelig i Homey.",
+      : "Enheden melder fejl eller er utilgængelig.",
   };
 }
 

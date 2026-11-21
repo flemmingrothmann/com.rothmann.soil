@@ -11,6 +11,8 @@ Generel lokal Homey event bridge til mini-PC ingest.
 - Events markeres med `source_system=homey` og `event_type=observation`, saa Wingman kan skelne dem fra Home Assistant, Zigbee2MQTT og replay.
 - Default koegrænser er 600000 events og 300 MiB, cirka 3 dages buffer ved den maalte eventrate; de aeldste events droppes foerst, hvis graensen rammes.
 - Koeen kan justeres med `MAX_QUEUE_EVENTS` og `MAX_QUEUE_BYTES` i `env.json` eller app settings.
+- Fulde inventarsnapshots sync'es separat fra realtime-observationer. En opstartsfejl eller en enkelt fejlet capability-subscription afslutter ikke bridgen; komplette snapshots forsøges igen på det normale interval.
+- Ugyldigt eller tomt device-inventory sendes ikke til ingest, da et accepteret komplet snapshot fjerner Homey-enheder, som mangler i listen. Historiske events og `state_current` slettes ikke ved inventory-oprydning.
 
 ## Lokal Env
 
@@ -18,7 +20,7 @@ Opret `env.json` lokalt, ikke commit:
 
 ```json
 {
-  "INGEST_URL": "http://192.168.100.66:8788/api/ingest/homey",
+  "INGEST_URL": "http://192.168.100.67:8788/api/ingest/homey",
   "INGEST_TOKEN": "..."
 }
 ```

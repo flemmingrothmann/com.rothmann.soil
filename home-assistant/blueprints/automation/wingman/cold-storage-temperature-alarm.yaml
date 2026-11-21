@@ -1,0 +1,154 @@
+blueprint:
+  name: Køleovervågning
+  description: Overvåger temperatur, datakvalitet og alarmstatus for køl/frys.
+  domain: automation
+  input:
+    temperature_sensor:
+      name: Temperaturføler
+      selector:
+        entity:
+          filter:
+            domain: sensor
+    average_sensor:
+      name: Tidsvægtet gennemsnit
+      selector:
+        entity:
+          filter:
+            domain: sensor
+    temperature_trend:
+      name: Temperaturtrend
+      selector:
+        entity:
+          filter:
+            domain: binary_sensor
+    average_trend:
+      name: Gennemsnitstrend
+      selector:
+        entity:
+          filter:
+            domain: binary_sensor
+    alarm_latch:
+      name: Vedvarende alarmstatus
+      selector:
+        entity:
+          filter:
+            domain: input_boolean
+    started_at:
+      name: Overvågning startet
+      selector:
+        entity:
+          filter:
+            domain: input_datetime
+    threshold:
+      name: Alarmgrænse
+      selector:
+        entity:
+          filter:
+            domain: input_number
+    source_timeout:
+      name: Datatimeout i minutter
+      selector:
+        entity:
+          filter:
+            domain: input_number
+    notify_target:
+      name: Notifikationsmål
+      selector:
+        text:
+    appliance_name:
+      name: Apparatnavn
+      selector:
+        text:
+variables:
+  temperature_sensor: !input temperature_sensor
+  average_sensor: !input average_sensor
+  temperature_trend: !input temperature_trend
+  average_trend: !input average_trend
+  alarm_latch: !input alarm_latch
+  started_at: !input started_at
+  threshold: !input threshold
+  source_timeout: !input source_timeout
+  notify_target: !input notify_target
+  appliance_name: !input appliance_name
+  temperature: "{{ states(temperature_sensor) | float(none) }}"
+  average: "{{ states(average_sensor) | float(none) }}"
+  threshold_value: "{{ states(threshold) | float(none) }}"
+  timeout_minutes: "{{ states(source_timeout) | float(none) }}"
+  source_fresh: "{{ states[temperature_sensor] is not none and is_number(states[temperature_sensor].state) and timeout_minutes is number and timeout_minutes > 0 and states[temperature_sensor].last_reported is not none and (as_timestamp(now()) - as_timestamp(states[temperature_sensor].last_reported, -1)) >= 0 and (as_timestamp(now()) - as_timestamp(states[temperature_sensor].last_reported, -1)) <= timeout_minutes * 60 }}"
+  average_fresh: "{{ states[average_sensor] is not none and is_number(states[average_sensor].state) and timeout_minutes is number and timeout_minutes > 0 and states[average_sensor].last_reported is not none and (as_timestamp(now()) - as_timestamp(states[average_sensor].last_reported, -1)) >= 0 and (as_timestamp(now()) - as_timestamp(states[average_sensor].last_reported, -1)) <= timeout_minutes * 60 }}"
+  data_valid: "{{ source_fresh and average_fresh and state_attr(average_sensor, 'source_value_valid') is sameas true }}"
+  trends_rising: "{{ is_state(temperature_trend, 'on') and is_state(average_trend, 'on')
+       and is_number(state_attr(temperature_trend, 'sample_count'))
+       and state_attr(temperature_trend, 'sample_count') | int(0) >= 2
+       and is_number(state_attr(average_trend, 'sample_count'))
+       and state_attr(average_trend, 'sample_count') | int(0) >= 2
+       and is_number(state_attr(temperature_trend, 'gradient'))
+       and state_attr(temperature_trend, 'gradient') | float(0) > 0
+       and is_number(state_attr(average_trend, 'gradient'))
+       and state_attr(average_trend, 'gradient') | float(0) > 0
+       and states[temperature_trend] is not none
+       and states[temperature_trend].last_updated is not none
+       and (as_timestamp(now()) - as_timestamp(states[temperature_trend].last_updated, -1)) >= 0
+       and (as_timestamp(now()) - as_timestamp(states[temperature_trend].last_updated, -1)) <= 3600
+       and states[average_trend] is not none
+       and states[average_trend].last_updated is not none
+       and (as_timestamp(now()) - as_timestamp(states[average_trend].last_updated, -1)) >= 0
+       and (as_timestamp(now()) - as_timestamp(states[average_trend].last_updated, -1)) <= 3600 }}"
+  warmed_up: "{{ states(started_at) not in ['unknown', 'unavailable', 'none', ''] and as_timestamp(states(started_at), none) is not none and as_timestamp(now()) - as_timestamp(states(started_at), none) >= 86400 }}"
+triggers:
+  - trigger: state
+    entity_id:
+      - !input temperature_sensor
+      - !input average_sensor
+      - !input temperature_trend
+      - !input average_trend
+      - !input alarm_latch
+      - !input started_at
+      - !input threshold
+      - !input source_timeout
+  - trigger: time_pattern
+    minutes: "/5"
+  - trigger: homeassistant
+    event: start
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ states(alarm_latch) == 'off' and data_valid
+                 and is_number(states(threshold)) and is_number(states(source_timeout))
+                 and threshold_value is number and timeout_minutes is number and timeout_minutes > 0
+                 and average > threshold_value and warmed_up and trends_rising }}
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: "{{ alarm_latch }}"
+          - action: notify.send_message
+            continue_on_error: true
+            data:
+              entity_id: "{{ notify_target }}"
+              message: >-
+                ALARM: {{ appliance_name }}. Temperaturen er {{ temperature | round(1) }} °C;
+                tidsvægtet gennemsnit er {{ average | round(1) }} °C
+                (grænse {{ threshold_value | round(1) }} °C). Temperaturen stiger.
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ states(alarm_latch) == 'on' and data_valid
+                 and is_number(states(threshold)) and is_number(states(source_timeout))
+                 and threshold_value is number and timeout_minutes is number and timeout_minutes > 0
+                 and average < threshold_value }}
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: "{{ alarm_latch }}"
+          - action: notify.send_message
+            continue_on_error: true
+            data:
+              entity_id: "{{ notify_target }}"
+              message: >-
+                Normal: {{ appliance_name }}. Temperaturen er {{ temperature | round(1) }} °C;
+                tidsvægtet gennemsnit er {{ average | round(1) }} °C
+                (under grænsen {{ threshold_value | round(1) }} °C).
+mode: single
+max_exceeded: silent

@@ -80,7 +80,7 @@
   - Lokalt server-performance UI paa hubert.
   - Bruges til samlet CPU/RAM/disk/netvaerk og Docker/container-load.
   - Maa ikke router-forwardes eller eksponeres offentligt.
-  - Lokal adgang: `http://192.168.100.66:19999`.
+  - Lokal adgang: `http://192.168.100.67:19999`.
 
 ## Data Fra Homey
 - Primaer strategi er Homey push-events, ikke polling.

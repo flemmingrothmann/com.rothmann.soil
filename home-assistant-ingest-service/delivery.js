@@ -1,6 +1,6 @@
 "use strict";
 
-function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () => true }) {
+function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () => true, resolveDevice = (device) => device }) {
   const devices = new Map();
   const routes = new Set();
   async function request(pathname, method, body, accepted) {
@@ -15,6 +15,7 @@ function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () =
     if (envelope.inventorySnapshot) {
       const snapshot = envelope.inventorySnapshot;
       await request("/api/sync/external-device-inventory", "POST", snapshot, true);
+      devices.clear();
       for (const route of snapshot.routes || []) {
         const signature = JSON.stringify(route);
         if (routes.has(signature)) continue;
@@ -24,9 +25,11 @@ function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () =
       return;
     }
 
-    const { device, events } = envelope;
+    const { events } = envelope;
+    const device = resolveDevice(envelope.device);
+    const syncDevice = shouldSyncDevice(device);
     const signature = JSON.stringify(device);
-    if (shouldSyncDevice(device) && devices.get(device.id) !== signature) {
+    if (syncDevice && devices.get(device.id) !== signature) {
       await request("/api/sync/external-devices", "POST", { devices: [device] }, true);
       devices.set(device.id, signature);
     }
@@ -34,7 +37,7 @@ function createDelivery({ url, token, fetchImpl = fetch, shouldSyncDevice = () =
       sourceSystem: "home_assistant", sourceDeviceId: device.id,
       targetSystem: "home_assistant", targetDeviceId: device.id, validFrom: "2026-08-18T00:00:00.000Z",
     } : null);
-    if (route && !routes.has(JSON.stringify(route))) {
+    if (syncDevice && route && !routes.has(JSON.stringify(route))) {
       await request("/api/replay/routes", "PUT", route, false);
       routes.add(JSON.stringify(route));
     }

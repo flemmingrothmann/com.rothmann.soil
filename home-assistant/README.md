@@ -10,7 +10,7 @@ The runtime is pinned to **2026.11.1**. Backup, compatibility checks and upgrade
 docker compose up -d
 ```
 
-Open `http://192.168.100.66:8123` to finish the initial setup.
+Open `http://192.168.100.67:8123` to finish the initial setup.
 
 ## Matter
 

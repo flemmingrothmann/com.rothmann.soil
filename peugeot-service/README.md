@@ -6,7 +6,7 @@
 
 ```bash
 docker compose --project-directory /opt/soil/peugeot-service -f /opt/soil/peugeot-service/compose.yaml up -d
-ssh -L 5000:127.0.0.1:5000 fro@192.168.100.66
+ssh -L 5000:127.0.0.1:5000 fro@192.168.100.67
 ```
 
 Åbn derefter `http://127.0.0.1:5000`, og gennemfør MyPeugeot-login, SMS-kode og bilens firecifrede pinkode. Login-data gemmes i Docker-volumenet `peugeot-car-controller-data` og må ikke lægges i repoet.

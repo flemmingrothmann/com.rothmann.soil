@@ -101,9 +101,17 @@ class HomeyWingmanBridge {
     });
     this.log('Homey Wingman HomeyAPI app session created');
     this.loadPersistentQueue();
-    await this.subscribeDeviceCapabilities();
-    await this.syncHomeySnapshot();
     this.startSnapshotSync();
+    try {
+      await this.syncHomeySnapshot();
+    } catch (error) {
+      this.error(`Homey Wingman initial snapshot sync failed: ${error.message || error}`);
+    }
+    try {
+      await this.subscribeDeviceCapabilities();
+    } catch (error) {
+      this.error(`Homey Wingman capability subscription setup failed: ${error.message || error}`);
+    }
     this.flushQueue().catch((error) => {
       this.error(`Homey Wingman initial queue flush failed: ${error.message || error}`);
     });
@@ -253,8 +261,18 @@ class HomeyWingmanBridge {
         this.getLogicVariables(),
       ]);
 
-      const trackedDevices = Object.fromEntries(Object.entries(devices || {})
-        .filter(([, device]) => !isHomeAssistantProxyDevice(device)));
+      if (!devices || typeof devices !== 'object' || Array.isArray(devices)
+        || !zones || typeof zones !== 'object' || Array.isArray(zones)) {
+        throw new Error('Homey device and zone inventories must be complete objects');
+      }
+      const trackedDevices = {};
+      for (const [id, device] of Object.entries(devices)) {
+        if (!isHomeAssistantProxyDevice(device)) trackedDevices[id] = device;
+      }
+      if (Object.keys(trackedDevices).length === 0) {
+        throw new Error('Homey tracked device inventory must not be empty');
+      }
+
       const response = await fetch(syncUrl, {
         method: 'POST',
         headers: {
@@ -287,7 +305,16 @@ class HomeyWingmanBridge {
   }
 
   async subscribeDeviceCapabilities() {
-    const devices = await this.homeyApi.devices.getDevices();
+    let devices;
+    try {
+      devices = await this.homeyApi.devices.getDevices();
+      if (!devices || typeof devices !== 'object' || Array.isArray(devices)) {
+        throw new Error('Homey device inventory is invalid');
+      }
+    } catch (error) {
+      this.error(`Homey Wingman capability inventory unavailable: ${error.message || error}`);
+      return;
+    }
     let tracked = 0;
 
     for (const device of Object.values(devices || {})) {
@@ -300,13 +327,17 @@ class HomeyWingmanBridge {
         }
 
         this.lastValues.set(`${device.id}:${capability}`, getCapabilityValue(device, capability));
-        const capabilityInstance = device.makeCapabilityInstance(capability, (value) => {
-          this.handleCapabilityValue(device, capability, value).catch((error) => {
-            this.error(`Homey Wingman capability handler failed: ${error.message || error}`);
+        try {
+          const capabilityInstance = device.makeCapabilityInstance(capability, (value) => {
+            this.handleCapabilityValue(device, capability, value).catch((error) => {
+              this.error(`Homey Wingman capability handler failed: ${error.message || error}`);
+            });
           });
-        });
-        this.capabilityInstances.push(capabilityInstance);
-        tracked += 1;
+          this.capabilityInstances.push(capabilityInstance);
+          tracked += 1;
+        } catch (error) {
+          this.error(`Homey Wingman capability subscription skipped device=${device.name || device.id} capability=${capability}: ${error.message || error}`);
+        }
       }
     }
 

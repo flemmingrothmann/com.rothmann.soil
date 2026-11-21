@@ -2,9 +2,9 @@
 
 ## Drift
 
-- `https://ha.knalloo.dk` → Caddy → `192.168.100.66:8123` på `hubert`.
+- `https://ha.knalloo.dk` → Caddy → `192.168.100.67:8123` på `hubert`.
 - ASUS RT-AC68U: de kontrollerede manuelle viderestillinger er TCP 80 og 443
-  til `192.168.100.66`. UPnP, DMZ og WAN-administration er endnu ikke verificeret.
+  til `192.168.100.67`. UPnP, DMZ og WAN-administration er endnu ikke verificeret.
 - Ejeren har bekræftet fungerende MFA. MFA kræver ikke et cloud-abonnement.
 - HTTP-konfiguration ejes fra HA 2026.8 af **Indstillinger → System → Netværk**,
   ikke af `configuration.yaml`. Manglende `http:` i YAML betyder ikke, at

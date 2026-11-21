@@ -23,8 +23,19 @@ let flushing = false;
 let retryDelayMs = MIN_RETRY_DELAY_MS;
 let retryTimer = null;
 const deliver = createDelivery({ url: WINGMAN_URL, token: INGEST_TOKEN,
-  shouldSyncDevice: (device) => !(device.sourceSystem === "zigbee2mqtt" && process.env.SOIL_PROFILES_FILE
-    && readJson(process.env.SOIL_PROFILES_FILE, {})[device.id]),
+  resolveDevice: (device) => {
+    const model = device.ieee && zigbee?.models[device.ieee];
+    const current = model ? zigbee.publicDevice(model)
+      : !device.ieee && device.driverId === "home_assistant:light" && zigbee?.haLights?.get(device.id);
+    return current ? { ...current, available: device.available } : device;
+  },
+  shouldSyncDevice: (device) => {
+    if (device.ieee || device.sourceSystem === "zigbee2mqtt") return Boolean(zigbee?.models[device.ieee || device.id])
+      && !zigbee.models[device.ieee || device.id].ignored && !(process.env.SOIL_PROFILES_FILE
+      && readJson(process.env.SOIL_PROFILES_FILE, {})[device.ieee || device.id]);
+    if (device.driverId === "home_assistant:light" && zigbee) return Boolean(zigbee.haLights?.has(device.id));
+    return true;
+  },
 });
 
 function scheduleRetry() {
@@ -37,7 +48,7 @@ function scheduleRetry() {
 }
 
 async function flushQueue() {
-  if (flushing || queue.length === 0 || (zigbee && !zigbee.inventoryFresh)) return;
+  if (flushing || queue.length === 0 || (zigbee && (!zigbee.inventoryFresh || !zigbee.haLights))) return;
   flushing = true;
   try {
     await drainQueue(queue, deliver);

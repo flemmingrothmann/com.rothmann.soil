@@ -73,11 +73,12 @@ function startRegistryObserver({ url, token, onSnapshot, onStatus = () => {} }) 
       if (refreshing) { dirty = true; return; }
       refreshing = true;
       try {
-        const [devices, entities, areas, labels] = await Promise.all([
+        const [devices, entities, areas, labels, states] = await Promise.all([
           call("config/device_registry/list"), call("config/entity_registry/list"),
           call("config/area_registry/list"), call("config/label_registry/list"),
+          call("get_states"),
         ]);
-        onSnapshot(registryMetadata({ devices, entities, areas, labels }));
+        onSnapshot(registryMetadata({ devices, entities, areas, labels }), { devices, entities, areas, labels, states });
         retryDelay = 15000;
         onStatus(true);
       } catch (error) {
@@ -102,10 +103,17 @@ function startRegistryObserver({ url, token, onSnapshot, onStatus = () => {} }) 
         const message = JSON.parse(data);
         if (message.type === "auth_required") current.send(JSON.stringify({ type: "auth", access_token: token }));
         else if (message.type === "auth_ok") {
-          Promise.all(["device", "entity", "area", "label"].map((kind) => call("subscribe_events", { event_type: `${kind}_registry_updated` })))
+          Promise.all(["device", "entity", "area", "label"].map((kind) => call("subscribe_events", { event_type: `${kind}_registry_updated` }))
+            .concat(call("subscribe_events", { event_type: "state_changed" })))
             .then(refresh).catch((error) => { console.error(`HA metadata subscription: ${error.message}`); close(); });
         } else if (message.type === "auth_invalid") close();
-        else if (message.type === "event") scheduleRefresh();
+        else if (message.type === "event") {
+          const event = message.event;
+          if (event?.event_type !== "state_changed" || (event.data?.entity_id?.startsWith("light.") && (
+            !event.data.old_state || !event.data.new_state
+            || event.data.old_state.attributes?.friendly_name !== event.data.new_state.attributes?.friendly_name
+          ))) scheduleRefresh();
+        }
         else if (pending.has(message.id)) {
           const request = pending.get(message.id);
           pending.delete(message.id);

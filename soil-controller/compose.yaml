@@ -14,7 +14,7 @@ services:
       ZIGBEE2MQTT_STATE_FILE: /zigbee2mqtt/state.json
       HOME_ASSISTANT_PACKAGES_DIR: /home-assistant/packages
       HOME_ASSISTANT_AUTOMATIONS_FILE: /home-assistant/config/automations.yaml
-      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-http://192.168.100.66:8123}
+      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-http://192.168.100.67:8123}
       HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:?HOME_ASSISTANT_TOKEN must be set}
       PORT: 8790
     expose:

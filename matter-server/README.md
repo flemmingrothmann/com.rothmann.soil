@@ -8,9 +8,10 @@ can later handle Matter over Thread through an OpenThread Border Router (OTBR).
 - Compose: `/opt/soil/matter-server/compose.yaml` on `hubert`.
 - Container: `matter-server`, pinned to Matter.js Server `1.5.5`.
 - HA connection: `ws://127.0.0.1:5580/ws` (host networking on both containers).
-- Matter/mDNS interface: `enp2s0`; IPv6 must remain enabled.
+- Matter/mDNS interface: `wlp1s0`; IPv6 must remain enabled.
 - Named volume: `matter-server_matter-server-data`, mounted at `/data`.
 - WebSocket/dashboard binds to localhost only; do not expose it through Caddy.
+- If hubert changes network interfaces, update `PRIMARY_INTERFACE` to the active Matter/mDNS interface and restart Matter Server; it binds to the configured interface.
 - No USB access, privileged mode or host Bluetooth is needed. Commissioning uses
   the phone's Bluetooth through the Home Assistant Companion app.
 

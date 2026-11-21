@@ -1,0 +1,76 @@
+{
+  "sensor": {
+    "name": "Køleskab Værksted gennemsnit 24t",
+    "platform": "statistics",
+    "entity_id": "sensor.0xf044d3fffe1acc2b_temperature",
+    "unique_id": "koleskab_vaerksted_gennemsnit_24t",
+    "state_characteristic": "average_step",
+    "max_age": { "hours": 24 },
+    "precision": 3,
+    "keep_last_sample": false
+  },
+  "binary_sensor": {
+    "temperature_trend": {
+      "name": "Køleskab Værksted temperatur stiger",
+      "platform": "trend",
+      "entity_id": "sensor.0xf044d3fffe1acc2b_temperature",
+      "min_samples": 2,
+      "min_gradient": 0.00000001,
+      "sample_duration": 3600,
+      "max_samples": 10000,
+      "unique_id": "koleskab_vaerksted_temperatur_stiger"
+    },
+    "average_trend": {
+      "name": "Køleskab Værksted gennemsnit stiger",
+      "platform": "trend",
+      "entity_id": "sensor.koleskab_vaerksted_gennemsnit_24t",
+      "min_samples": 2,
+      "min_gradient": 0.00000001,
+      "sample_duration": 3600,
+      "max_samples": 10000,
+      "unique_id": "koleskab_vaerksted_gennemsnit_stiger"
+    }
+  },
+  "input_boolean": {
+    "entity_id": "input_boolean.koleskab_vaerksted_temperaturalarm",
+    "name": "Køleskab Værksted temperaturalarm"
+  },
+  "input_datetime": {
+    "entity_id": "input_datetime.koleskab_vaerksted_overvaagning_startet",
+    "name": "Køleskab Værksted overvågning startet",
+    "has_date": true,
+    "has_time": true
+  },
+  "input_number": [
+    {
+      "entity_id": "input_number.koleskab_vaerksted_alarmgraense",
+      "name": "Køleskab Værksted alarmgrænse",
+      "min": -40,
+      "max": 30,
+      "step": 0.1,
+      "mode": "box",
+      "unit_of_measurement": "°C",
+      "default_value": 7
+    },
+    {
+      "entity_id": "input_number.koleskab_vaerksted_optimal_temperatur",
+      "name": "Køleskab Værksted optimal temperatur",
+      "min": -40,
+      "max": 30,
+      "step": 0.1,
+      "mode": "box",
+      "unit_of_measurement": "°C",
+      "default_value": 5
+    },
+    {
+      "entity_id": "input_number.koleskab_vaerksted_datatimeout",
+      "name": "Køleskab Værksted datatimeout",
+      "min": 10,
+      "max": 1440,
+      "step": 5,
+      "mode": "box",
+      "unit_of_measurement": "min",
+      "default_value": 120
+    }
+  ]
+}

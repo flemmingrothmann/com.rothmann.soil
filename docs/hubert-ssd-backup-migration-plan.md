@@ -103,14 +103,14 @@ sudo poweroff
 1. Installer Ubuntu paa den nye interne SSD.
 2. Brug hostname `hubert`.
 3. Opret bruger `fro` med SSH-adgang.
-4. Konfigurer Ethernet som primaer driftforbindelse og WiFi som fallback under install eller straks efter foerste boot.
-5. Kontroller lokalt at Ethernet har DHCP-adresse, og at arbejds-PC'en kan forbinde med `ssh fro@192.168.100.66`. Dette er remote-handoff punktet; naar SSH virker, kan resten af restore-forloebet gennemfoeres fra arbejds-PC'en.
+4. Konfigurer WiFi `wlp1s0` som primær driftforbindelse; Ethernet er sekundær.
+5. Kontroller lokalt at WiFi har `192.168.100.67`, og at arbejds-PC'en kan forbinde med `ssh fro@192.168.100.67`. Dette er remote-handoff punktet; naar SSH virker, kan resten af restore-forloebet gennemfoeres fra arbejds-PC'en.
 6. Installer ikke Homey/Wingman-services foer backupdisken er mounted og restore-planen er klar.
 
 ### Foerste Boot Efter Ren Install
 
 1. Opdater systemet og installer basispakker fra `Ren Ubuntu Reinstall Remedier`.
-2. Konfigurer netplan med Ethernet `enp2s0` som primaer driftforbindelse og WiFi `wlp1s0` som fallback.
+2. Konfigurer netplan med WiFi `wlp1s0` som primær driftforbindelse på `192.168.100.67`; Ethernet er sekundær.
 3. Installer Realtek WiFi remedier og `hubert-wifi-watchdog.timer`.
 4. Mount ekstern backupdisk via UUID.
 5. Installer Docker/Compose.
@@ -131,9 +131,9 @@ Systemet er ikke faerdig-recovered foer alle disse er OK:
 - Postgres har `timescaledb` extension og forventet `ingest_event` count/range.
 - Homey Wingman queue drainer uden vedvarende fejl.
 - Dashboard viser aktuelle data.
-- Portainer svarer paa `https://192.168.100.66:9443/`.
+- Portainer svarer paa `https://192.168.100.67:9443/`.
 - Zigbee layout/routehistorik er bevaret.
-- Default route gaar via Ethernet `enp2s0`, og WiFi `wlp1s0` er aktiv fallback.
+- `hubert` er tilgængelig via WiFi på `192.168.100.67`; WiFi er den foretrukne driftsvej.
 - `hubert-backup.timer` og `hubert-wifi-watchdog.timer` er active.
 - Ny post-restore backup og restore-test er bestaaet.
 
@@ -146,10 +146,10 @@ adresse pr. 2026-11-09 er `172.18.0.3/32`; antag ikke, at den er uændret efter 
 1. Find Caddys aktuelle IP på `hubert`:
 
    ```sh
-   ssh fro@192.168.100.66 "docker inspect caddy-reverse-proxy --format '{{json .NetworkSettings.Networks}}'"
+   ssh fro@192.168.100.67 "docker inspect caddy-reverse-proxy --format '{{json .NetworkSettings.Networks}}'"
    ```
 
-2. Ved afvist HTTPS-adgang: åbn HA lokalt på `http://192.168.100.66:8123`.
+2. Ved afvist HTTPS-adgang: åbn HA lokalt på `http://192.168.100.67:8123`.
    Under **Indstillinger → System → Netværk → HTTP-server** kontrolleres
    `use_x_forwarded_for` og `trusted_proxies`. Opdatér om nødvendigt proxyadressen
    til Caddys aktuelle IPv4-adresse med `/32`. Deaktivér ikke proxykontrollen,
@@ -302,26 +302,26 @@ sudo /usr/local/sbin/hubert-restore-test.sh /mnt/hubert-backup/hubert/daily/<tim
 ```bash
 curl -fsS http://127.0.0.1:8788/health
 curl -k -sS -o /dev/null -w 'dashboard-login=%{http_code}\n' https://home.knalloo.dk/login
-curl -fsS http://192.168.100.66:19999/api/v1/info >/dev/null
-curl -k -fsS https://192.168.100.66:9443/ >/dev/null
+curl -fsS http://192.168.100.67:19999/api/v1/info >/dev/null
+curl -k -fsS https://192.168.100.67:9443/ >/dev/null
 systemctl is-active hubert-backup.timer
 systemctl is-active hubert-wifi-watchdog.timer
 docker ps --format 'table {{.Names}}\t{{.Status}}'
 ```
 
-Hvis `hubert-netdata` er healthy, men `http://192.168.100.66:19999` ikke svarer efter reboot, tjek at Docker viser portbindingen `192.168.100.66:19999->19999/tcp`. Mangler den, recreate kun Netdata-containeren efter at `enp2s0` har faaet `192.168.100.66`:
+Hvis `hubert-netdata` er healthy, men `http://192.168.100.67:19999` ikke svarer efter reboot, tjek at Docker viser portbindingen `192.168.100.67:19999->19999/tcp`. Mangler den, recreate kun Netdata-containeren efter at `wlp1s0` har faaet `192.168.100.67`:
 
 ```bash
 docker compose --project-directory /opt/soil/monitoring -f /opt/soil/monitoring/compose.yaml up -d --force-recreate --no-deps netdata
 ```
 
-Portainer bruger ogsaa en IP-specifik Docker-portbinding. Hvis `portainer` koerer, men `https://192.168.100.66:9443/` ikke svarer og `docker ps` ikke viser `192.168.100.66:9443->9443/tcp`, genskab containeren med samme `portainer_data` volume efter at `enp2s0` har faaet `192.168.100.66`:
+Portainer bruger ogsaa en IP-specifik Docker-portbinding. Hvis `portainer` koerer, men `https://192.168.100.67:9443/` ikke svarer og `docker ps` ikke viser `192.168.100.67:9443->9443/tcp`, genskab containeren med samme `portainer_data` volume efter at `wlp1s0` har faaet `192.168.100.67`:
 
 ```bash
 old=portainer-replaced-$(date -u +%Y%m%dT%H%M%SZ)
 docker stop portainer
 docker rename portainer "$old"
-docker run -d --name portainer --restart=unless-stopped -p 192.168.100.66:9443:9443 -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ce:lts
+docker run -d --name portainer --restart=unless-stopped -p 192.168.100.67:9443:9443 -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ce:lts
 ```
 
 13. Kør en ny fuld backup efter systemet er genskabt.
@@ -363,7 +363,9 @@ journalctl -b --no-pager | grep -E 'CTRL-EVENT-DISCONNECTED|Connection to AP|WPA
 
 ## Hubert Netværksstabilitet
 
-- `hubert` bruger Ethernet `enp2s0` som primær driftforbindelse (`192.168.100.66`, DHCP route metric `100`) og WiFi `wlp1s0` som fallback (`192.168.100.67`, DHCP route metric `600`).
+- Status 20. november 2026: WiFi `.67` er den ønskede adgangsvej, men endnu ikke stabilt verificeret. SSH lytter på alle interfaces. Nære AP'er afviser authentication; den accepterende AP har svagt signal. Efter nedenstående driverrettelse viste 90 WiFi-bundne gateway-pings stadig 24,4 % tab og nyt disconnect. Bevar Ethernet indtil mesh-/AP-problemet er løst; live route metrics er fortsat Ethernet `100`, WiFi `600`.
+- Realtek-strømbesparelsesrettelsen blev aktiveret uden reboot ved genindlæsning af kun WiFi-driveren. Begge aktive parametre er nu `Y`; persistent fil `/etc/modprobe.d/hubert-wifi-stability.conf`, kilde `infra/network/hubert-wifi-stability.conf`. Backup: `/opt/soil/.backups/wifi-power-20261120T092851Z/`.
+- `hubert` tilgås fremover via WiFi `wlp1s0` på `192.168.100.67`; WiFi er mere stabil end Ethernet `enp2s0` til den ustabile mesh-node. Den tidligere Ethernet-adresse `.66` er ikke længere standard for SSH, deploy eller direkte serviceadgang.
 - Observeret udfald 2026-07-13 skyldtes WiFi `wlp1s0`, ikke reboot, Postgres eller Docker: logs viste gentagne `CTRL-EVENT-DISCONNECTED`, `Connection to AP lost` og `WPA: 4-Way Handshake failed`.
 - Der er opsat `hubert-wifi-watchdog.timer`, som hvert minut pinger gateway `192.168.100.1` via `wlp1s0` og forsøger `wpa_cli reconnect`/WPA-service restart ved manglende forbindelse, saa WiFi-fallbacken holdes klar.
 - Realtek-driveren `rtw88_8822ce` har persistent modprobe-konfiguration for at deaktivere deep power save og PCI ASPM ved næste driverindlæsning/reboot.

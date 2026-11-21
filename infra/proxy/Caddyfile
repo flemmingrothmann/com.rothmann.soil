@@ -9,5 +9,5 @@ home.knalloo.dk {
 
 ha.knalloo.dk {
   encode zstd gzip
-  reverse_proxy 192.168.100.66:8123
+  reverse_proxy 192.168.100.67:8123
 }

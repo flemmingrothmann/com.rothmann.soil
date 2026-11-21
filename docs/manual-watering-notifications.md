@@ -23,9 +23,13 @@
 - Ved en ny manuel sensor oprettes dens dato/tid-helper med samme ID-konvention (automatisk for Zigbee);
   sæt første værdi til en dato mindst 24 timer tilbage, hvis første push skal sendes straks.
   Manglende/utilgængelig helper stopper push frem for at sende ubegrænset.
-- Aktuelt er `notify.mobile_app_flemmings_s23` den eneste registrerede mobilapp.
-  Når nye telefoner tilknyttes, skal deres `notify.mobile_app_*`-handling tilføjes
-  i automationen. Bevar `continue_on_error`, så én utilgængelig telefon ikke blokerer andre.
+- Automationens modtager er den UI-administrerede notify-gruppe
+  `notify.manuel_vanding_mobilapps`. Tilføj eller fjern telefoner via
+  **Indstillinger → Enheder og tjenester → Hjælpere → Mobilnotifikationer**;
+  vælg telefonens `notify.*`-entitet. Automationen skal ikke ændres, når telefoner skiftes.
+- **Mobilnotifikationer** bruges også af kaffemaskinens færdig-push. Gruppens tekniske
+  ID `notify.manuel_vanding_mobilapps` er bevaret; visningsnavnet er fælles for begge formål.
+- Bevar `continue_on_error`, så en utilgængelig telefon ikke blokerer andre gruppemedlemmer.
 - Push bruger alarmens ID som tag, så en ny alarm erstatter en gammel besked på telefonen.
 
 ## Verifikation

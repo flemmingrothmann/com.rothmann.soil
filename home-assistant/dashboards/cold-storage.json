@@ -1,0 +1,52 @@
+{
+  "title": "Køleovervågning",
+  "views": [
+    {
+      "title": "Køleskab Værksted",
+      "path": "koleskab-vaerksted",
+      "icon": "mdi:fridge-outline",
+      "cards": [
+        {
+          "type": "markdown",
+          "content": "# Køleskab Værksted\n{% set source = states['sensor.0xf044d3fffe1acc2b_temperature'] %}{% set average = states['sensor.koleskab_vaerksted_gennemsnit_24t'] %}{% set temp_trend = states['binary_sensor.koleskab_vaerksted_temperatur_stiger'] %}{% set avg_trend = states['binary_sensor.koleskab_vaerksted_gennemsnit_stiger'] %}{% set latch = states('input_boolean.koleskab_vaerksted_temperaturalarm') %}{% set started = as_timestamp(states('input_datetime.koleskab_vaerksted_overvaagning_startet'), none) %}{% set timeout = states('input_number.koleskab_vaerksted_datatimeout') | float(none) %}{% set threshold = states('input_number.koleskab_vaerksted_alarmgraense') | float(none) %}{% set source_age = as_timestamp(now()) - as_timestamp(source.last_reported, -1) if source and source.last_reported else -1 %}{% set average_age = as_timestamp(now()) - as_timestamp(average.last_reported, -1) if average and average.last_reported else -1 %}{% if latch == 'on' %}**Alarmeret**{% elif not source or not average or not is_number(source.state) or not is_number(average.state) or source_age < 0 or average_age < 0 or not is_number(timeout) or not is_number(threshold) or source_age > timeout * 60 or average_age > timeout * 60 or average.attributes.get('source_value_valid') is not sameas true %}**Datamangler** · Målinger mangler, er for gamle eller ugyldige.{% elif started is none or as_timestamp(now()) - started < 86400 %}**Indsamler data** · Alarmen aktiveres først efter mindst 24 timer.{% elif not temp_trend or not avg_trend or temp_trend.state != 'on' or avg_trend.state != 'on' or not is_number(temp_trend.attributes.get('sample_count')) or temp_trend.attributes.get('sample_count') | int(0) < 2 or not is_number(avg_trend.attributes.get('sample_count')) or avg_trend.attributes.get('sample_count') | int(0) < 2 or not 0 <= as_timestamp(now()) - as_timestamp(temp_trend.last_updated, -1) <= 3600 or not 0 <= as_timestamp(now()) - as_timestamp(avg_trend.last_updated, -1) <= 3600 %}**Datamangler** · Trenddata er ikke friske eller tilstrækkelige.{% elif average.state | float(none) > threshold and temp_trend.attributes.get('gradient', 0) | float(0) > 0 and avg_trend.attributes.get('gradient', 0) | float(0) > 0 %}**Overvågning aktiv** · Gennemsnittet er over grænsen, og begge trends stiger.{% else %}**Normal** · Friske målinger under alarmbetingelsen.{% endif %}\n\nAlarm udløses kun ved friske data, efter mindst 24 timers indsamling, når gennemsnittet er **over** grænsen, og begge trends stiger."
+        },
+        {
+          "type": "entities",
+          "title": "Status",
+          "show_header_toggle": false,
+          "entities": [
+            { "entity": "sensor.0xf044d3fffe1acc2b_temperature", "name": "Aktuel temperatur" },
+            "sensor.koleskab_vaerksted_gennemsnit_24t",
+            "binary_sensor.koleskab_vaerksted_temperatur_stiger",
+            "binary_sensor.koleskab_vaerksted_gennemsnit_stiger"
+          ]
+        },
+        {
+          "type": "history-graph",
+          "title": "Temperatur · seneste uge",
+          "hours_to_show": 168,
+          "entities": [
+            { "entity": "sensor.0xf044d3fffe1acc2b_temperature", "name": "Aktuel temperatur" },
+            { "entity": "sensor.koleskab_vaerksted_gennemsnit_24t", "name": "Gennemsnit 24 timer" }
+          ]
+        },
+        {
+          "type": "entities",
+          "title": "Indstillinger",
+          "show_header_toggle": false,
+          "entities": [
+            "input_number.koleskab_vaerksted_alarmgraense",
+            "input_number.koleskab_vaerksted_optimal_temperatur",
+            "input_number.koleskab_vaerksted_datatimeout",
+            "input_datetime.koleskab_vaerksted_overvaagning_startet"
+          ]
+        },
+        {
+          "type": "markdown",
+          "title": "Hjælp",
+          "content": "Alarmgrænsen starter ved 7 °C; optimal temperatur 5 °C er vejledende og styrer ikke alarmen. Lighed med grænsen ændrer ikke alarmstatus. Datatimeout på 120 minutter kan justeres. Manglende, gamle eller ugyldige data giver hverken alarm eller normalmelding. Gennemsnittet er tidsvægtet average_step over tilgængelige observationer i 24 timer. De to regressions-trends ser én time tilbage. **Overvågning startet** sættes én gang ved tilmelding og må ikke ændres bagefter; alarmen er blokeret indtil mindst 24 timer derefter. Pushforsøg kvitterer ikke for, at telefonen har modtaget beskeden."
+        }
+      ]
+    }
+  ]
+}

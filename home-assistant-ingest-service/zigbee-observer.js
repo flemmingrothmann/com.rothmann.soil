@@ -5,6 +5,7 @@ const fs = require("fs");
 const { readJson, writeJson, PersistentQueue } = require("./storage");
 const { startRegistryObserver } = require("./registry");
 const { deviceModel, observationBatch, isDirectLight, unavailableBatch } = require("./zigbee");
+const { lightInventory } = require("./ha-light-inventory");
 
 class ZigbeeObserver {
   constructor({ directory = "/data", profilesFile, enqueue, now = () => new Date().toISOString() }) {
@@ -59,7 +60,8 @@ class ZigbeeObserver {
     this.save();
   }
 
-  snapshot(metadata) {
+  snapshot(metadata, registry) {
+    if (registry) this.haRegistry = registry;
     this.cache.metadata = metadata;
     this.cache.syncedAt = this.now();
     this.rebuild();
@@ -96,9 +98,22 @@ class ZigbeeObserver {
       routes,
     };
     const signature = JSON.stringify(snapshot);
-    if (signature === this.inventorySignature) return;
-    this.enqueue({ inventorySnapshot: snapshot });
-    this.inventorySignature = signature;
+    if (signature !== this.inventorySignature) {
+      this.enqueue({ inventorySnapshot: snapshot });
+      this.inventorySignature = signature;
+    }
+    if (this.haRegistry) {
+      const models = Object.values(this.models);
+      const protectedIds = [...models.map((model) => model.id), ...Object.keys(profiles)];
+      const excludedEntityIds = models.filter((model) => !model.ignored && model.haEntityId).map((model) => model.haEntityId);
+      const haSnapshot = lightInventory(this.haRegistry, protectedIds, excludedEntityIds);
+      this.haLights = new Map(haSnapshot.devices.map((device) => [device.id, device]));
+      const haSignature = JSON.stringify(haSnapshot);
+      if (haSignature !== this.haInventorySignature) {
+        this.enqueue({ inventorySnapshot: haSnapshot });
+        this.haInventorySignature = haSignature;
+      }
+    }
   }
 
   publicDevice(model) {
@@ -183,7 +198,7 @@ class ZigbeeObserver {
   }
 
   start({ url, token }) {
-    return startRegistryObserver({ url, token, onSnapshot: (metadata) => this.snapshot(metadata), onStatus: (connected) => { this.stats.haConnected = connected; } });
+    return startRegistryObserver({ url, token, onSnapshot: (metadata, registry) => this.snapshot(metadata, registry), onStatus: (connected) => { this.stats.haConnected = connected; } });
   }
 
   status() {

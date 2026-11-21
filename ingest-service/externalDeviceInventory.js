@@ -1,6 +1,6 @@
 'use strict';
 
-const INVENTORY_SOURCES = new Set(['zigbee2mqtt']);
+const INVENTORY_SOURCES = new Set(['zigbee2mqtt', 'home_assistant_lights']);
 
 function validateExternalDeviceInventory(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -28,6 +28,11 @@ function validateExternalDeviceInventory(body) {
     }
     if (ids.has(device.id)) throw new Error(`Duplicate external inventory device id: ${device.id}`);
     ids.add(device.id);
+    if (inventorySource === 'home_assistant_lights'
+      && (!/^light\.[a-z0-9_]+$/.test(device.id) || device.driverId !== 'home_assistant:light'
+        || device.sourceSystem !== 'home_assistant')) {
+      throw new Error('HA light inventory may only contain Home Assistant lights.');
+    }
   }
 
   const protectedIds = new Set();
@@ -75,8 +80,12 @@ async function reconcileExternalDeviceInventory(client, inventory, upsertDevice)
           or (
             external.payload->>'inventorySource' is null
             and (
-              external.payload->>'sourceSystem' = $1
-              or external.driver_id like 'zigbee2mqtt:%'
+              ($1 = 'zigbee2mqtt' and (
+                external.payload->>'sourceSystem' = $1
+                or external.driver_id like 'zigbee2mqtt:%'
+              ))
+              or ($1 = 'home_assistant_lights' and external.driver_id = 'home_assistant:light'
+                and external.payload->>'sourceSystem' = 'home_assistant')
               or exists (
                 select 1
                 from device_route route
@@ -104,7 +113,7 @@ async function reconcileExternalDeviceInventory(client, inventory, upsertDevice)
           and source_device_id = any($2::text[])
           and valid_to is null
       `,
-      [inventorySource, removedDeviceIds],
+      [inventorySource === 'home_assistant_lights' ? 'home_assistant' : inventorySource, removedDeviceIds],
     );
     routesClosed = closed.rowCount;
 
@@ -118,7 +127,7 @@ async function reconcileExternalDeviceInventory(client, inventory, upsertDevice)
             where homey.id = current.homey_device_id
           )
       `,
-      [removedDeviceIds, inventorySource],
+      [removedDeviceIds, inventorySource === 'home_assistant_lights' ? 'home_assistant' : inventorySource],
     );
     currentStatesRemoved = states.rowCount;
 

@@ -4,7 +4,7 @@ Zigbee2MQTT exclusively owns the Sonoff Dongle-P. Do not configure ZHA or any ot
 
 ## Services
 
-- Zigbee2MQTT frontend: `http://192.168.100.66:8080`
+- Zigbee2MQTT frontend: `http://192.168.100.67:8080`
 - MQTT broker: loopback-only on `127.0.0.1:1883`
 
 Pairing is disabled by default. Enable it only for a controlled pairing session in the Zigbee2MQTT frontend.

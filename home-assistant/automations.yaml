@@ -28,6 +28,30 @@
         brightness_pct: 100
         transition: 0
   mode: single
+- id: kaffemaskine_kaffe_faerdig_push
+  alias: Kaffemaskine - push nar kaffen er faerdig
+  description: >-
+    Starts above 1000 W for 20 seconds; sends push below 100 W for 80 seconds.
+  mode: single
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.0xa4c138c037832b4f_power
+      above: 1000
+      for:
+        seconds: 20
+  actions:
+    - wait_for_trigger:
+        - trigger: numeric_state
+          entity_id: sensor.0xa4c138c037832b4f_power
+          below: 100
+          for:
+            seconds: 80
+    - action: notify.send_message
+      target:
+        entity_id: notify.manuel_vanding_mobilapps
+      data:
+        title: Kaffemaskine
+        message: Kaffen er klar.
 - id: sovevaerelse_skab_led_driver_always_on
   alias: Soveværelse skab LED-driver altid tændt
   description: >-
@@ -52,7 +76,7 @@
   description: >-
     Sender manuelle vandingsalarmer højst én gang pr. 24 timer pr. sensor.
     Seneste push gemmes i en dato/tid-helper og bevares ved genstart.
-    Tilføj nye mobilapps til listen over handlinger ved tilknytning.
+    Tilføj telefoner i den fælles hjælper Mobilnotifikationer.
   triggers:
     - trigger: persistent_notification
       update_type:
@@ -74,7 +98,9 @@
         entity_id: "{{ last_push_helper }}"
       data:
         timestamp: "{{ as_timestamp(now()) | round(0, 'ceil') | int }}"
-    - action: notify.mobile_app_flemmings_s23
+    - action: notify.send_message
+      target:
+        entity_id: notify.manuel_vanding_mobilapps
       continue_on_error: true
       data:
         title: "{{ trigger.notification.title }}"

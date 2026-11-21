@@ -18,6 +18,7 @@ class BlueprintLoader(yaml.SafeLoader):
 BlueprintLoader.add_constructor('!input', lambda loader, node: loader.construct_scalar(node))
 BLUEPRINT = yaml.load((ROOT / 'blueprints/automation/wingman/manual-soil-moisture-alarm.yaml').read_text(), Loader=BlueprintLoader)
 PUSH = next(item for item in yaml.safe_load((ROOT / 'automations.yaml').read_text()) if item.get('id') == 'manuel_vanding_push_notifikation')
+COFFEE = next(item for item in yaml.safe_load((ROOT / 'automations.yaml').read_text()) if item.get('id') == 'kaffemaskine_kaffe_faerdig_push')
 HELPERS = yaml.safe_load((ROOT / 'ui-helpers/legacy-watering/manual_watering_notifications.yaml').read_text())['input_datetime']
 
 
@@ -81,11 +82,19 @@ class ManualWateringNotificationTests(unittest.TestCase):
     def test_push_preserves_notification_title_message_and_tag(self):
         notification = SimpleNamespace(title="Efeu i 'Flemmings Værelse' skal vandes", message='Jordfugt er 20 %. Grænsen er 25 %.', notification_id='manual_soil_alarm_efeu')
         trigger = SimpleNamespace(notification=notification)
-        for action in PUSH['actions'][3:]:
-            self.assertTrue(action['action'].startswith('notify.mobile_app_'))
-            self.assertEqual(self.render(action['data']['title'], trigger=trigger), notification.title)
-            self.assertEqual(self.render(action['data']['message'], trigger=trigger), notification.message)
-            self.assertEqual(self.render(action['data']['data']['tag'], trigger=trigger), notification.notification_id)
+        action = PUSH['actions'][3]
+        self.assertEqual(action['action'], 'notify.send_message')
+        self.assertEqual(action['target']['entity_id'], 'notify.manuel_vanding_mobilapps')
+        self.assertEqual(self.render(action['data']['title'], trigger=trigger), notification.title)
+        self.assertEqual(self.render(action['data']['message'], trigger=trigger), notification.message)
+        self.assertEqual(self.render(action['data']['data']['tag'], trigger=trigger), notification.notification_id)
+
+    def test_coffee_and_watering_share_the_ui_managed_notify_group(self):
+        coffee_push = [action for action in COFFEE['actions'] if action.get('action', '').startswith('notify.')]
+        self.assertEqual(len(coffee_push), 1)
+        self.assertEqual(coffee_push[0]['action'], 'notify.send_message')
+        self.assertEqual(coffee_push[0]['target'], PUSH['actions'][3]['target'])
+        self.assertEqual(coffee_push[0]['data'], {'title': 'Kaffemaskine', 'message': 'Kaffen er klar.'})
 
 
 if __name__ == '__main__':
