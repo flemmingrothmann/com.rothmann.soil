@@ -24,6 +24,7 @@ const {
   normalizeEnergyPeriodOffset,
   normalizeWateringMaxCycles,
   shouldShowActiveDevice,
+  shouldIncludeSoilDashboardDevice,
   updateSoilIssueCounterState,
 } = require('../dashboard/server');
 const { isHomeAssistantProxyDevice } = require('../homey-wingman-app/lib/homeyWingmanBridge');
@@ -380,6 +381,31 @@ test('shows active detail devices when active or unavailable', () => {
 test('does not treat unavailable devices as active', () => {
   assert.equal(isActiveCapability({ available: false, capabilitiesObj: { onoff: { value: true } } }, 'onoff'), false);
   assert.equal(shouldShowActiveDevice({ available: false, capabilitiesObj: { onoff: { value: true } } }, 'onoff'), true);
+});
+
+test('includes only HA-mapped Z2M soil devices while preserving Homey soil devices', () => {
+  const soil = { capabilities: ['measure_soil_moisture'] };
+  assert.equal(shouldIncludeSoilDashboardDevice({
+    ...soil, driverId: 'zigbee2mqtt:device', haDeviceId: 'ha-device-1',
+  }), true);
+  assert.equal(shouldIncludeSoilDashboardDevice({
+    ...soil, driverId: 'zigbee2mqtt:device',
+  }), false);
+  assert.equal(shouldIncludeSoilDashboardDevice({
+    ...soil, driverId: 'zigbee2mqtt:device', haDeviceId: null,
+  }), false);
+  assert.equal(shouldIncludeSoilDashboardDevice({
+    ...soil, driverId: 'zigbee2mqtt:device', haDeviceId: '',
+  }), false);
+  assert.equal(shouldIncludeSoilDashboardDevice({
+    capabilities: ['measure_battery'], driverId: 'zigbee2mqtt:device', haDeviceId: 'ha-device-1',
+  }), false);
+  assert.equal(shouldIncludeSoilDashboardDevice({
+    ...soil, driverId: 'homey:app:homey-driver',
+  }), true);
+  assert.equal(shouldIncludeSoilDashboardDevice({
+    driverId: 'homey:app:homey-driver', capabilities: ['measure_battery'],
+  }), false);
 });
 
 test('treats linked watering timer as active valve source of truth', () => {

@@ -524,7 +524,7 @@ async function getDashboard() {
   const { devices: apiDevices, zones: apiZones } = await getHomeyInventory();
   const zoneInfo = getZoneInfo(apiZones);
   const soilDevices = Object.values(apiDevices || {}).filter((device) =>
-    hasCapability(device, "measure_soil_moisture"),
+    shouldIncludeSoilDashboardDevice(device),
   );
   const devices = await Promise.all(
     soilDevices.map((device) => toSoilDashboardDevice(device, zoneInfo, now)),
@@ -997,6 +997,13 @@ function hasSoilAlarmThresholdControl(device) {
 
 function isHomeAssistantSoilDevice(device) {
   return String(device?.driverId || "").startsWith("zigbee2mqtt:");
+}
+
+function shouldIncludeSoilDashboardDevice(device) {
+  return (
+    hasCapability(device, "measure_soil_moisture") &&
+    (!isHomeAssistantSoilDevice(device) || Boolean(device.haDeviceId))
+  );
 }
 
 function isWateringValve(device) {
@@ -4041,5 +4048,6 @@ module.exports = {
   normalizePeugeotVehicle,
   isContactSensor,
   shouldShowActiveDevice,
+  shouldIncludeSoilDashboardDevice,
   updateSoilIssueCounterState,
 };
